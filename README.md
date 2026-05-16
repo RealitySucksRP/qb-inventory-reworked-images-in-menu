@@ -22,7 +22,6 @@
 - Cash-as-item support via AP rework backend
 - Optional HUD hide/show hook (works with rs-hudlifeV2 or any HUD that exposes a visibility export)
 - All original qb-inventory logic preserved: stashes, vehicle trunk/glovebox, weapon attachments, drops, shops, durability, item tooltips
-- 8 languages included: Arabic, Czech, German, English, Spanish, Japanese, Dutch, Portuguese
 - Genuinely open source -- no escrow_ignore, no assetpacks dependency
 
 ## Dependencies
