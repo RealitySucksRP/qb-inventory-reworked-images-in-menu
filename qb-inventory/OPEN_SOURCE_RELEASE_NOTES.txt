@@ -1,0 +1,14 @@
+RealitySucksRP qb-inventory Punk Edition - Open Source Release
+
+This package is intentionally open source. There is no escrow_ignore block and no assetpacks dependency in fxmanifest.lua.
+
+Release cleanup performed:
+- Removed invalid loose Lua note file: For Damage & BC_Wounding.lua
+- Removed old backup files and dev-only folders
+- Removed dead/orphan root config.lua that was not loaded by fxmanifest.lua
+- Kept the custom menu UI/images intact
+
+Important:
+- Keep the resource folder named qb-inventory.
+- Configure HUD integration in config/config.lua under Config.CustomHUD.
+- If your HUD does not export SetHUDLifeVisible, set Config.CustomHUD.Enabled = false.

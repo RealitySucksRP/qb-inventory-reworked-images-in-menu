@@ -3,7 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'Kakarot / RealitySucksRP'
-description 'Player inventory system providing a variety of features for storing and managing items'
+description 'Open-source custom UI qb-inventory with AP/rework backend, cash-as-item support, and HUD compatibility'
+version '2.5.1-rs-punk-open-source'
 
 dependencies {
     'qb-core',
