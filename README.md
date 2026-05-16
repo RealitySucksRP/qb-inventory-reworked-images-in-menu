@@ -2,6 +2,8 @@
 
 **RealitySucks Edition -- Dungeon UI**
 
+![qb-inventory-punk preview](qb-inventory-punk.png)
+
 Open-source custom UI qb-inventory for FiveM, built on the Anya-Project rework backend.
 Cash-as-item support, optional HUD compatibility hook, fully patched and CFX-clean.
 Style name is "punk", nickname is "Dungeon UI". All original logic -- drag-drop, stash
