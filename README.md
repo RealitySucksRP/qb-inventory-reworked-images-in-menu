@@ -1,294 +1,192 @@
-# qb-inventory-punk
+```
+██████╗ ███████╗ █████╗ ██╗     ██╗████████╗██╗   ██╗
+██╔══██╗██╔════╝██╔══██╗██║     ██║╚══██╔══╝╚██╗ ██╔╝
+██████╔╝█████╗  ███████║██║     ██║   ██║    ╚████╔╝
+██╔══██╗██╔══╝  ██╔══██║██║     ██║   ██║     ╚██╔╝
+██║  ██║███████╗██║  ██║███████╗██║   ██║      ██║
+╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝   ╚═╝      ╚═╝
+ ████████╗██╗   ██╗███╗   ██╗███████╗██████╗  ██████╗██╗  ██╗██╗██████╗
+ ╚══██╔══╝██║   ██║████╗  ██║██╔════╝██╔══██╗██╔════╝██║  ██║██║██╔══██╗
+    ██║   ██║   ██║██╔██╗ ██║█████╗  ██████╔╝██║     ███████║██║██████╔╝
+    ██║   ██║   ██║██║╚██╗██║██╔══╝  ██╔══██╗██║     ██╔══██║██║██╔═══╝
+    ██║   ╚██████╔╝██║ ╚████║███████╗██║  ██║╚██████╗██║  ██║██║██║
+    ╚═╝    ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝
+```
 
-**RealitySucks Edition -- Dungeon UI**
+> **RealitySucks-TunerChip** — Universal drift chip for QBCore. Five profiles. Useable item. Persistent state. Free.
 
-![qb-inventory-punk preview](qb-inventory-punk.png)
-
-Open-source custom UI qb-inventory for FiveM, built on the Anya-Project rework backend.
-Cash-as-item support, optional HUD compatibility hook, fully patched and CFX-clean.
-Style name is "punk", nickname is "Dungeon UI". All original logic -- drag-drop, stash
-system, Vue.js app -- is untouched. Only the visual layer and a few backend hooks were
-rebuilt.
-
-Version: `2.5.1-rs-punk-open-source`
-
----
-
-## What This Is
-
-A complete CSS and asset overhaul of QBCore's qb-inventory, layered on top of the
-Anya-Project (AP) qb-inventory-rework backend. Holographic glass panels, hex grid
-backgrounds, dungeon decorative art behind the menu, segmented weight bars, custom
-typography. The inventory logic itself is the original framework code plus the AP
-rework patches -- only `main.css`, `fxmanifest.lua`, and added UI art files were touched
-on the frontend.
-
-This release is genuinely open source: no `escrow_ignore` block, no `/assetpacks`
-dependency. Drop it in, run it, fork it.
+`Framework: QBCore` &nbsp;|&nbsp; `Version: 2.0.0` &nbsp;|&nbsp; `License: GPL-3.0` &nbsp;|&nbsp; `Price: Free.99`
 
 ---
 
-## What Changed From Stock
+## // 01 — WHAT THIS IS
 
-The entire CSS was replaced with an intentional design system:
+A drift chip resource players can install on nearly any vehicle in-game using an item (`ws_driftchip`).
+Once installed, it modifies the vehicle's handling in real time — traction, inertia, steering lock, engine power — to make it slide.
 
-- Full dark background with subtle 40px grid lines and color zone glows (green player
-  side, blue storage side)
-- Glass panel surfaces with top accent lines per inventory type
-- Item slots are flat dark with corner bracket accents that lift on hover
-- Segmented weight bar -- 12 individual segments instead of a plain fill bar
-- Barlow Condensed typography with dominant weight numbers and eyebrow tags
-- Context menu rebuilt with left border accent on hover, sharp and clean
-- Hotbar flush to the bottom of the player panel with active slot indicator line
-- Slot entry animation replaced with a clean scale-in
-- Holographic hex / server-tech skin with true transparent glass panel
-- Dungeon background art layers: zhead, zbody, zskelly placed behind the menu
-- RealitySucks logo (rslogo) watermark inside the inventory panel
+Five profiles are included. Each one feels and behaves differently. Players pick what fits their car and style.
 
-Nothing in `index.html`, `app.js`, or `js/app.js` was modified. Vue.js logic, drag and
-drop, tooltips, context menu behavior, weapon attachments -- all original.
+When a player logs out with drift active, it remembers. When they log back in, it re-enables automatically.
+
+No database needed. No ox_lib. No extra dependencies beyond qb-core and qb-menu.
 
 ---
 
-## Features Preserved
+## // 02 — FILES & WHAT THEY DO
 
-All original qb-inventory features work as before:
+> New to FiveM scripting? Here's exactly what each file is responsible for.
 
-- Stashes (personal and shared)
-- Vehicle trunk and glovebox
-- Weapon attachments
-- Shops with price display
-- Item drops
-- Drag and drop between inventories
-- Context menu -- use, give, drop, split, serial, attachments
-- Item durability bar per slot
-- Hotbar with keybind slots 1-5
-- Item tooltips with description and weight
+| File | Runs On | Purpose |
+|---|---|---|
+| `fxmanifest.lua` | — | Tells FiveM what this resource is and which files to load |
+| `config.lua` | Client | All settings — keys, profiles, allowed vehicles, messages |
+| `client.lua` | Client | The actual drift logic — reads config, modifies vehicle handling |
+| `server.lua` | Server | Creates the useable item, saves drift state to player metadata |
+
+**Why client and server?**
+In FiveM, some things can only happen on the client (vehicle handling, NUI, player input) and some things can only happen on the server (saving data, item registration, database calls). This resource uses both — that's standard QBCore structure.
 
 ---
 
-## Cash As Item
+## // 03 — INSTALL
 
-This package ships with cash-as-item support enabled by default via the AP rework
-backend. This requires a patched `qb-core/player.lua` that treats cash as a regular
-inventory item rather than account balance.
+```
+1.  Extract RealitySucks-TunerChip into your /resources folder
+2.  Open server.cfg and add:         ensure RealitySucks-TunerChip
+3.  Add ws_driftchip to your shared items (see step 4 below)
+4.  Restart your server
+```
 
-If you do not want cash-as-item behavior, set in `config/config.lua`:
+**Step 3 explained — adding the useable item:**
+
+Open `qb-core/shared/items.lua` and add this inside the items table:
 
 ```lua
-Config.CashAsItem = false
+['ws_driftchip'] = {
+    name         = 'ws_driftchip',
+    label        = 'Drift Chip',
+    weight       = 100,
+    type         = 'item',
+    image        = 'ws_driftchip.jpg',
+    unique       = false,
+    useable      = true,
+    shouldClose  = true,
+    combinable   = nil,
+    description  = 'A performance chip that modifies vehicle handling for drift.'
+},
 ```
 
-If you do keep it enabled, make sure your `qb-core` is patched for the AP rework, or
-cash will not persist correctly.
+> **What is a useable item?** In QBCore, a useable item is an item in a player's inventory that triggers a server-side function when used. In `server.lua`, we register `ws_driftchip` as useable — so when a player clicks "use" on the item in their inventory, QBCore calls our function, which then tells the client to apply the drift profile. That's the whole flow: inventory → server event → client event → handling change.
 
 ---
 
-## Custom HUD Integration (Optional)
+## // 04 — CONFIG BREAKDOWN
 
-The inventory will hide and show your HUD when the menu opens and closes. By default it
-calls the `SetHUDLifeVisible` export on `rs-hudlifeV2`. If you do not use that HUD,
-disable the hook in `config/config.lua`:
+Everything tunable lives in `config.lua`. Here's what each setting actually does:
 
 ```lua
-Config.CustomHUD = {
-    Enabled = false,
-    ResourceName = 'rs-hudlifeV2',
-    ExportName  = 'SetHUDLifeVisible'
-}
+Config.ApplyOnEnter = false
 ```
+If `true`, drift auto-applies when a player gets into a vehicle (if they had it on when they logged out).
+Set to `false` if you want players to manually re-enable it each session.
 
-To use a different HUD resource, change `ResourceName` and `ExportName` to match your
-HUD's export.
-
----
-
-## Dependencies
-
-- [qb-core](https://github.com/qbcore-framework/qb-core) -- patched for AP rework if using cash-as-item
-- [qb-weapons](https://github.com/qbcore-framework/qb-weapons)
-- [oxmysql](https://github.com/overextended/oxmysql)
-
----
-
-## Installation
-
-1. Drop the folder into your `[qb]` resources directory
-2. **IMPORTANT:** rename the folder to `qb-inventory`, or your `server.cfg` ensure line
-   will not match
-3. Add to your `server.cfg`:
-
-   ```cfg
-   ensure qb-inventory
-   ```
-
-4. Import `qb-inventory.sql` into your database if doing a fresh install (see below)
-5. Configure `config/config.lua` for your HUD (or disable the hook)
-
----
-
-## Database (Fresh Install)
-
-```sql
-CREATE TABLE IF NOT EXISTS `inventories` (
-  `id` INT(11) NOT NULL AUTO_INCREMENT,
-  `identifier` VARCHAR(50) NOT NULL,
-  `items` LONGTEXT DEFAULT ('[]'),
-  PRIMARY KEY (`identifier`),
-  KEY `id` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4;
+```lua
+Config.InstallMs = 1200
 ```
+Fake "install" delay in milliseconds when enabling the chip. Creates immersion — the notification shows "Installing..." and waits before applying. Set to `0` to skip it entirely.
+
+```lua
+Config.AllowedVehicleClasses = {0,1,2,3,4,5,6,7,8,9,12}
+```
+Controls which GTA vehicle classes can use the chip. Class numbers map to:
+`0` Compacts · `1` Sedans · `2` SUVs · `3` Coupes · `4` Muscle · `5` Sports Classics · `6` Sports · `7` Super · `8` Motorcycles · `9` Off-road · `12` Vans
+
+Remove a class number to block it. Set to `nil` to allow everything.
+
+```lua
+Config.ToggleKey   = 'F5'
+Config.MenuKey     = 'F6'
+```
+Default keybinds. Players can rebind these in GTA's key settings after first use. You can change the defaults here.
 
 ---
 
-## Migrating From Old qb-inventory
+## // 05 — DRIFT PROFILES
 
-Upload `qb-inventory.sql` to create the new `inventories` table. Use the provided
-`migrate.sql` to move all saved inventory data from stashes, trunks, and gloveboxes.
-Once migration is complete you can drop the `gloveboxitems`, `stashitems`, and
-`trunkitems` tables.
+Each profile tunes different handling values. Here's what they feel like and when to use them:
 
----
+| Profile | Handling Style | Smoke Color | Best Vehicle Type |
+|---|---|---|---|
+| **Balanced** | Stable, predictable slides — easy to control | White | Any RWD car |
+| **Takeover** | Loose rear, big angle, heavy smoke | Warm yellow-white | Wide body builds |
+| **Pursuit** | Grip/drift hybrid — fast cornering with slip | Light blue | Police interceptors, chase builds |
+| **JDM** | Snappy throttle response, tight precise angle | Green tint | Japanese sports cars |
+| **Muscle** | Maximum torque, long sustained slides | Warm red tint | American V8 builds |
 
-## Config Defaults
-
-| Setting              | Default          |
-|----------------------|------------------|
-| MaxWeight            | 120000 (120 kg)  |
-| MaxSlots             | 40               |
-| StashSize maxweight  | 2000000          |
-| StashSize slots      | 100              |
-| DropSize maxweight   | 1000000          |
-| DropSize slots       | 50               |
-| Open keybind         | TAB              |
-| Hotbar keybind       | Z                |
-| CleanupDropTime      | 15 minutes       |
-| CleanupDropInterval  | 1 minute         |
+> Players switch profiles with F6 (or `/driftmenu`). The selected profile persists until they change it or disable drift.
 
 ---
 
-## Localization
+## // 06 — CREATIVE IDEAS FOR YOUR SERVER
 
-Eight languages included in `locales/`: Arabic, Czech, German, English, Spanish,
-Japanese, Dutch, Portuguese. Switch via your qb-core locale setting.
+Don't just hand players the item. Here are ways to build around it:
 
----
+**Drift Shop Job**
+Create an NPC mechanic at a garage or tuner shop location. Players bring their car, pay a fee, and the mechanic "installs" the chip. Gate the item behind that interaction instead of a flat shop.
 
-## UI Tweaking
+**Racing League Whitelist**
+Only allow certain vehicle classes — strip out everything except Sports and Super (classes 6 and 7). Make the chip an entry requirement for a drift league faction or job.
 
-See `RS_UI_QUICK_TWEAKS.txt` in the resource root for the full CSS variable reference.
-Quick summary -- all easy tweaks are CSS variables at the bottom of `html/main.css`:
+**Illegal Street Racing Economy**
+Tie the chip to the black market. Only obtainable through md-drugs money laundering or a criminal contact NPC. Makes drift culture feel underground, not just a free toggle.
 
-**Glass transparency:**
-- `--rs-panel-glass` -- lower = clearer menu panel
-- `--rs-header-glass` -- lower = clearer top header
-- `--rs-slot-glass` -- lower = clearer item slots
-- `--rs-logo-watermark-opacity` -- higher = stronger logo behind menu
-- `--rs-art-opacity` -- higher = stronger side images
+**Ranked Drift Modes**
+Lock the stronger profiles (Takeover, Muscle) behind a skill or reputation system. New players start with Balanced only. Unlock better profiles through events or achievements tracked in metadata.
 
-**Dungeon art positioning:**
-- `--rs-zhead-left` / `--rs-zhead-top`
-- `--rs-zbody-right` / `--rs-zbody-top`
-- `--rs-zskelly-right` / `--rs-zskelly-bottom`
+**Vehicle-Specific Chips**
+Duplicate the resource and create profile variants — a `JDM Chip` that only allows the JDM profile and only works on Japanese car models. Sell them as separate items at different price points.
 
-**Sizing:**
-- `--rs-item-icon-scale` -- item icon size inside slots
-- `--rs-item-slot-min-height` -- slot row height
-- `--rs-zhead-width` / `--rs-zbody-width` / `--rs-zskelly-width`
-
-**Notification placement:**
-- `--rs-notify-right` / `--rs-notify-top` / `--rs-notify-size`
+**Drift Event Activator**
+Trigger `ws-driftchip:client:SelectMode` server-side during a scheduled drift event to auto-equip all registered participants with the Takeover profile for the duration. Clean it up with the Disable event when the event ends.
 
 ---
 
-## Version History
+## // 07 — KEYBINDS & COMMANDS
 
-### v1.1 -- RS Dungeon UI Patch
-- Added transparent PNG UI art files: `rslogo.png`, `zhead.png`, `zbody.png`, `zskelly.png`
-- Placed zhead, zbody, zskelly behind the menu UI as decorative background layers
-- Added rslogo as a watermark inside the inventory panel
-- Kept the main inventory grid at 5 columns with slots 1-5 numbered
-- Updated `fxmanifest.lua` so top-level UI PNG files load correctly and item images can
-  remain in `html/images/`
-
-### v1.2 -- RS UI Sizing
-- Stretched the player inventory menu height about 50% taller without changing width or
-  column count
-- Added bottom-of-file easy CSS controls for menu height and decorative image movement
-
-### v1.3 -- Holographic Cyberpunk Skin (2026-05-01)
-- Applied the holographic cyberpunk / dungeon menu preview styling to the live inventory
-- Only visual menu CSS was changed: panels, borders, columns, slot glow, hover styling
-- Inventory logic, item image paths, drag/drop, and hotbar behavior unchanged
-- Item icons still belong in `html/images/`
-
-### v1.5 -- Transparent Glass
-- Kept the holographic hex / server-tech skin
-- Made the panel true transparent glass so the logo and art show through behind the menu
-
-### v1.6 -- Dungeon UI Cleanup
-- Fixed holographic transparent/grid background leaking before character select and
-  staying visible during gameplay
-- Disabled global `body::before` and `body::after` visual overlays so the game screen
-  stays clean when the inventory is closed
-- Kept the holographic grid / glass style inside the inventory menu only
-- Moved `zskelly` slightly down and left on the screen
-- No inventory logic, item paths, drag/drop, hotbar, or server code changed
-
-### v1.7 -- Notification and Art Clarity
-- Fixed item notification placement to right-center, slightly higher
-- Forced notification size/style to match the zombie build
-- Enlarged dungeon background art and moved zskelly lower/left
-- Kept the holographic grid inside the inventory only
-
-### v1.8 -- Text and Item Icon Clarity
-- Notification position/style left untouched from v1.7
-- Enlarged and sharpened inventory header text, weight text, slot numbers, amount text,
-  and bottom hints
-- Enlarged item icons inside the inventory squares
-- Increased dungeon background art size/contrast so the images stand out more behind the
-  glass UI
-
-### v2.5.1 -- Open Source Release
-- Removed invalid loose Lua note file (`For Damage & BC_Wounding.lua`)
-- Removed old backup files and dev-only folders
-- Removed dead/orphan root `config.lua` that was not loaded by `fxmanifest.lua`
-- Verified no `escrow_ignore` and no `/assetpacks` dependency
-- Kept the custom menu UI and dungeon art intact
+| Input | Action |
+|---|---|
+| `F5` | Toggle drift on / off |
+| `F6` | Open profile selection menu |
+| `/drift` | Toggle via chat command |
+| `/driftmenu` | Open menu via chat command |
 
 ---
 
-## Credits
+## // 08 — TROUBLESHOOTING
 
-Original resource by the QBCore Framework team:
-[qbcore-framework/qb-inventory](https://github.com/qbcore-framework/qb-inventory)
-Copyright (C) 2021 Joshua Eger.
+**Drift isn't applying when I use the item**
+Make sure `ws_driftchip` is added to `qb-core/shared/items.lua` exactly as shown in the install section. If the item doesn't exist in shared, QBCore won't register it as useable.
 
-Huge thank you to **Anya-Project** -- the rework patches in
-[qb-inventory-rework](https://github.com/Anya-Project/qb-inventory-rework) are the
-backend foundation that made cash-as-item and the polish layer possible.
+**qb-menu isn't opening**
+Confirm `qb-menu` is started in your `server.cfg` before `RealitySucks-TunerChip`. Resource load order matters.
 
-Build by **Kakarot** and **RealitySucks RP** (William Brito).
-UI redesign and Dungeon theme by RealitySucks RP.
+**Handling isn't resetting after disable**
+The resource stores original handling values when it first touches a vehicle. If you modify handling with another resource after the chip loads, the stored "original" values may be stale. Restart the resource or the vehicle to reset the store.
+
+**Players can drift in vehicles they shouldn't**
+Edit `Config.AllowedVehicleClasses` in `config.lua` and remove the class numbers you want to block.
 
 ---
 
-## License
+## // 09 — LICENSE
 
-Licensed under the GNU General Public License v3. Full license text is in the `LICENSE`
-file in this repository.
+GPL-3.0 — Free to use, modify, and redistribute. Credit appreciated, not required.
+This was built on a live server and tested before release. If something breaks, open an issue.
+
+---
 
 ```
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program. If not, see https://www.gnu.org/licenses/
+// Made by RealitySucksRP
+// Built for the community — not for profit.
+// Reality Sucks. Script anyway.
 ```
