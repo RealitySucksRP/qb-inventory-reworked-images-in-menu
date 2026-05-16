@@ -1,4 +1,4 @@
-﻿For Damage & BC_Wounding
+For Damage & BC_Wounding
 
 -- [CLIENT-SIDE | LUA] --
 
