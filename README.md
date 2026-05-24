@@ -60,7 +60,7 @@ Open-source custom UI qb-inventory for FiveM --  Punk Edition. Holographic glass
 
 ## Cash As Item
 
-This package ships with cash-as-item enabled by default. The AP rework backend treats cash as a regular inventory item rather than account balance. This requires a patched `qb-core/player.lua` from the Anya-Project rework. If your qb-core is not patched, either patch it or set:
+This package ships with cash-as-item enabled by default. The AP rework backend treats cash as a regular inventory item rather than account balance. This requires a patched `qb-core/player.lua` fro...
 
 ```lua
 Config.CashAsItem = false
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS `inventories` (
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4;
 ```
 
-Migrating from old qb-inventory: import `qb-inventory.sql` to create the new `inventories` table, then run `migrate.sql` to move data from `stashitems`, `trunkitems`, and `gloveboxitems`. After confirming the move, drop those three legacy tables.
+Migrating from old qb-inventory: import `qb-inventory.sql` to create the new `inventories` table, then run `migrate.sql` to move data from `stashitems`, `trunkitems`, and `gloveboxitems`. After co...
 
 ## UI Tweaking
 
@@ -123,7 +123,7 @@ All easy CSS controls live at the bottom of `html/main.css`. See `RS_UI_QUICK_TW
 
 Original resource: [qbcore-framework/qb-inventory](https://github.com/qbcore-framework/qb-inventory) -- Copyright (C) 2021 Joshua Eger
 
-Backend foundation: [Anya-Project/qb-inventory-rework](https://github.com/Anya-Project/qb-inventory-rework) -- huge thanks for the rework patches that made cash-as-item and the polish layer possible.
+Backend foundation: [Anya-Project/qb-inventory-rework](https://github.com/Anya-Project/qb-inventory-rework) -- huge thanks for the rework patches that made cash-as-item and the polish layer possi...
 
 Build by **Kakarot** and **RealitySucks RP**.
 UI redesign and Dungeon theme by William Brito (RealitySucks RP).
@@ -135,3 +135,17 @@ GPL-3.0 -- Free to use, modify, and redistribute with credit.
 ---
 
 Made by [RealitySucksRP](https://github.com/RealitySucksRP) -- built for the community, not for profit.
+
+---
+
+## Support This Project
+
+<script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
+<script>
+  kofiWidgetOverlay.draw('realitysucksrp', {
+    'type': 'floating-chat',
+    'floating-chat.donateButton.text': 'Support me',
+    'floating-chat.donateButton.background-color': '#fcbf47',
+    'floating-chat.donateButton.text-color': '#323842'
+  });
+</script>
