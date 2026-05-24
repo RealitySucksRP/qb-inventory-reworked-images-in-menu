@@ -1,14 +1,6 @@
 # qb-inventory-punk
-<script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
-<script>
-  kofiWidgetOverlay.draw('realitysucksrp', {
-    'type': 'floating-chat',
-    'floating-chat.donateButton.text': 'Support me',
-    'floating-chat.donateButton.background-color': '#fcbf47',
-    'floating-chat.donateButton.text-color': '#323842'
-  });
-</script>
-> Open-source custom UI qb-inventory for FiveM -- Dungeon UI / Punk Edition. Holographic glass panels, dungeon art behind the menu, cash-as-item support, AP rework backend.
+
+Open-source custom UI qb-inventory for FiveM --  Punk Edition. Holographic glass panels, punk art behind the menu, cash-as-item support, AP rework backend.
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-red)](LICENSE)
 [![Framework](https://img.shields.io/badge/framework-QBCore-blue)](https://github.com/qbcore-framework/qb-core)
