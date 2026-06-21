@@ -1,0 +1,15 @@
+CFX CLEAN CHECK
+
+This package has been cleaned for CFX/Tebex upload.
+
+Removed:
+- For Damage & BC_Wounding.lua
+- For Damage & BC_Wounding.lua.bak_*
+- old backup/dev junk
+
+Open source:
+- No escrow_ignore
+- No dependency /assetpacks
+
+If you still see: [string "For Damage & BC_Wounding.lua"]:1: syntax error near 'Damage'
+then CFX is reading an older upload/package or your local folder still contains that loose Lua file.
