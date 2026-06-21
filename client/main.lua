@@ -139,26 +139,247 @@ function LoadAnimDict(dict)
     end
 end
 
-local function FormatWeaponAttachments(itemdata)
-    if not itemdata.info or not itemdata.info.attachments or #itemdata.info.attachments == 0 then
-        return {}
+local function DecodeInfoTable(info)
+    if type(info) == 'table' then return info end
+
+    if type(info) == 'string' and info ~= '' then
+        local ok, decoded = pcall(function()
+            return json.decode(info)
+        end)
+
+        if ok and type(decoded) == 'table' then
+            return decoded
+        end
     end
-    local attachments = {}
-    local weaponName = itemdata.name
-    local WeaponAttachments = exports['qb-weapons']:getConfigWeaponAttachments()
-    if not WeaponAttachments then return {} end
-    for _, attachmentData in ipairs(itemdata.info.attachments) do
-        for attachmentType, weapons in pairs(WeaponAttachments) do
-            if weapons[weaponName] and weapons[weaponName] == attachmentData.component then
-                local label = QBCore.Shared.Items[attachmentType] and QBCore.Shared.Items[attachmentType].label or 'Unknown Attachment'
-                table.insert(attachments, {
-                    attachment = attachmentType,
-                    label = label
-                })
-                break
+
+    return {}
+end
+
+local function WeaponNameCandidates(name)
+    local candidates = {}
+    local seen = {}
+
+    local function add(value)
+        if type(value) ~= 'string' or value == '' then return end
+        if seen[value] then return end
+        seen[value] = true
+        candidates[#candidates + 1] = value
+    end
+
+    add(name)
+    if type(name) == 'string' then
+        add(string.lower(name))
+        add(string.upper(name))
+    end
+
+    return candidates
+end
+
+local function ComponentToHash(component)
+    if component == nil then return nil end
+
+    if type(component) == 'number' then
+        return component
+    end
+
+    if type(component) == 'string' then
+        if component == '' then return nil end
+
+        local numeric = tonumber(component)
+        if numeric then return numeric end
+
+        return joaat(component)
+    end
+
+    return nil
+end
+
+local function ComponentsMatch(a, b)
+    if a == nil or b == nil then return false end
+    if a == b then return true end
+
+    local hashA = ComponentToHash(a)
+    local hashB = ComponentToHash(b)
+
+    return hashA ~= nil and hashB ~= nil and hashA == hashB
+end
+
+local function GetConfiguredComponent(weapons, weaponName)
+    if type(weapons) ~= 'table' then return nil, nil end
+
+    for _, candidate in ipairs(WeaponNameCandidates(weaponName)) do
+        if weapons[candidate] then
+            return weapons[candidate], candidate
+        end
+    end
+
+    return nil, nil
+end
+
+local function ExtractAttachmentEntries(info)
+    local entries = {}
+    info = DecodeInfoTable(info)
+
+    local sourceFields = {
+        'attachments',
+        'attachment',
+        'components',
+        'component',
+        'mods',
+        'weaponAttachments',
+        'weapon_attachments',
+    }
+
+    local function addEntry(key, value)
+        if value == nil or value == false then return end
+
+        if type(value) == 'table' then
+            local entry = {}
+            for k, v in pairs(value) do entry[k] = v end
+            entry._key = entry._key or key
+            entries[#entries + 1] = entry
+            return
+        end
+
+        entries[#entries + 1] = {
+            _key = key,
+            component = value,
+            attachment = type(key) == 'string' and key or nil,
+        }
+    end
+
+    for _, field in ipairs(sourceFields) do
+        local source = info[field]
+        if type(source) == 'table' then
+            for key, value in pairs(source) do
+                addEntry(key, value)
+            end
+        elseif source ~= nil then
+            addEntry(field, source)
+        end
+    end
+
+    -- Extra compatibility for custom weapon shops that place attachment keys directly
+    -- inside info instead of inside info.attachments/components.
+    for key, value in pairs(info) do
+        if key ~= 'attachments' and key ~= 'attachment' and key ~= 'components' and key ~= 'component'
+            and key ~= 'mods' and key ~= 'weaponAttachments' and key ~= 'weapon_attachments'
+            and key ~= 'serie' and key ~= 'serial' and key ~= 'ammo' and key ~= 'quality'
+            and key ~= 'description' and key ~= 'created' and key ~= 'creationDate' and key ~= 'expiryDate' then
+            if value == true or type(value) == 'string' or type(value) == 'number' or type(value) == 'table' then
+                addEntry(key, value == true and key or value)
             end
         end
     end
+
+    return entries
+end
+
+local function ResolveAttachmentKey(attachmentData, weaponName, WeaponAttachments)
+    if type(attachmentData) ~= 'table' or type(WeaponAttachments) ~= 'table' then return nil, nil end
+
+    local possibleKeys = {
+        attachmentData.attachment,
+        attachmentData.item,
+        attachmentData.itemName,
+        attachmentData.name,
+        attachmentData.type,
+        attachmentData._key,
+    }
+
+    for _, possibleKey in ipairs(possibleKeys) do
+        if type(possibleKey) == 'string' and WeaponAttachments[possibleKey] then
+            local configuredComponent = GetConfiguredComponent(WeaponAttachments[possibleKey], weaponName)
+            if configuredComponent then
+                return possibleKey, configuredComponent
+            end
+        end
+    end
+
+    local component = attachmentData.component or attachmentData.hash or attachmentData.componentHash or attachmentData.component_hash or attachmentData.Component
+
+    -- Some weapon shops save the attachment item name directly as the component value.
+    if type(component) == 'string' and WeaponAttachments[component] then
+        local configuredComponent = GetConfiguredComponent(WeaponAttachments[component], weaponName)
+        if configuredComponent then
+            return component, configuredComponent
+        end
+    end
+
+    for attachmentType, weapons in pairs(WeaponAttachments) do
+        local configuredComponent = GetConfiguredComponent(weapons, weaponName)
+        if configuredComponent then
+            if ComponentsMatch(configuredComponent, component) then
+                return attachmentType, configuredComponent
+            end
+
+            for _, possibleKey in ipairs(possibleKeys) do
+                if type(possibleKey) == 'string' and possibleKey == attachmentType then
+                    return attachmentType, configuredComponent
+                end
+            end
+        end
+    end
+
+    return nil, component
+end
+
+local function AddAttachmentResult(results, seen, attachmentKey, component, fallbackLabel)
+    if not attachmentKey or seen[attachmentKey] then return end
+
+    local itemInfo = QBCore.Shared.Items[attachmentKey]
+    results[#results + 1] = {
+        attachment = attachmentKey,
+        label = (itemInfo and itemInfo.label) or fallbackLabel or attachmentKey,
+        component = component,
+    }
+    seen[attachmentKey] = true
+end
+
+local function AddPedInstalledAttachments(results, seen, itemdata, WeaponAttachments)
+    if type(itemdata) ~= 'table' or type(WeaponAttachments) ~= 'table' then return end
+    if not itemdata.name then return end
+
+    local ped = PlayerPedId()
+    if not ped or ped == 0 then return end
+
+    local weaponHash = joaat(itemdata.name)
+    if not HasPedGotWeapon(ped, weaponHash, false) then return end
+
+    for attachmentType, weapons in pairs(WeaponAttachments) do
+        local component = GetConfiguredComponent(weapons, itemdata.name)
+        local componentHash = ComponentToHash(component)
+        if componentHash and HasPedGotWeaponComponent(ped, weaponHash, componentHash) then
+            AddAttachmentResult(results, seen, attachmentType, component)
+        end
+    end
+end
+
+local function FormatWeaponAttachments(itemdata)
+    if not itemdata or type(itemdata) ~= 'table' then return {} end
+
+    local WeaponAttachments = exports['qb-weapons']:getConfigWeaponAttachments()
+    if not WeaponAttachments then return {} end
+
+    local info = DecodeInfoTable(itemdata.info or itemdata.metadata or {})
+    local attachmentEntries = ExtractAttachmentEntries(info)
+    local attachments = {}
+    local seen = {}
+
+    for _, attachmentData in pairs(attachmentEntries) do
+        local attachmentKey, component = ResolveAttachmentKey(attachmentData, itemdata.name, WeaponAttachments)
+        if attachmentKey then
+            AddAttachmentResult(attachments, seen, attachmentKey, component, attachmentData.label)
+        elseif Config and Config.Debug then
+            print(('[qb-inventory] Attachment metadata was found on %s but could not be matched: %s'):format(tostring(itemdata.name), json.encode(attachmentData)))
+        end
+    end
+
+    -- Fallback: if a custom/prebuilt weapon shop applied components to the ped but did
+    -- not save them under info.attachments, still show what is actually installed on
+    -- the currently held weapon.
+    AddPedInstalledAttachments(attachments, seen, itemdata, WeaponAttachments)
+
     return attachments
 end
 
@@ -372,37 +593,79 @@ end)
 
 RegisterNUICallback('RemoveAttachment', function(data, cb)
     local ped = PlayerPedId()
-    local WeaponData = data.WeaponData
+    local WeaponData = data and data.WeaponData
+    local AttachmentData = data and data.AttachmentData
+
+    if not WeaponData or not WeaponData.name or not AttachmentData or not AttachmentData.attachment then
+        cb({ ok = false, error = 'missing_attachment_data' })
+        return
+    end
+
     local allAttachments = exports['qb-weapons']:getConfigWeaponAttachments()
-    local Attachment = allAttachments[data.AttachmentData.attachment][WeaponData.name]
-    local itemInfo = QBCore.Shared.Items[data.AttachmentData.attachment]
+    local attachmentKey = AttachmentData.attachment
+    local weaponAttachments = allAttachments and allAttachments[attachmentKey]
+
+    -- Compatibility for servers that accidentally save weapon_suppressor while items.lua uses suppressor_attachment.
+    if (not weaponAttachments or not GetConfiguredComponent(weaponAttachments, WeaponData.name)) and attachmentKey == 'weapon_suppressor' then
+        if allAttachments and allAttachments['suppressor_attachment'] then
+            attachmentKey = 'suppressor_attachment'
+            AttachmentData.attachment = 'suppressor_attachment'
+            weaponAttachments = allAttachments['suppressor_attachment']
+        end
+    end
+
+    -- Extra fallback: if the panel sent only a component/hash, resolve it back to the qb-weapons item key.
+    if (not weaponAttachments or not GetConfiguredComponent(weaponAttachments, WeaponData.name)) and AttachmentData.component then
+        local resolvedKey = ResolveAttachmentKey(AttachmentData, WeaponData.name, allAttachments)
+        if resolvedKey and allAttachments[resolvedKey] then
+            attachmentKey = resolvedKey
+            AttachmentData.attachment = resolvedKey
+            weaponAttachments = allAttachments[resolvedKey]
+        end
+    end
+
+    local Attachment = GetConfiguredComponent(weaponAttachments, WeaponData.name)
+    local itemInfo = QBCore.Shared.Items[attachmentKey]
+
+    if not Attachment then
+        print(('[qb-inventory] RemoveAttachment blocked: no component for %s on %s'):format(tostring(attachmentKey), tostring(WeaponData.name)))
+        cb({ ok = false, error = 'missing_component', Attachments = FormatWeaponAttachments(WeaponData), WeaponData = WeaponData })
+        return
+    end
+
+    if not itemInfo then
+        print(('[qb-inventory] RemoveAttachment blocked: missing QBCore.Shared.Items entry for %s'):format(tostring(attachmentKey)))
+        cb({ ok = false, error = 'missing_item', Attachments = FormatWeaponAttachments(WeaponData), WeaponData = WeaponData })
+        return
+    end
+
     QBCore.Functions.TriggerCallback('qb-weapons:server:RemoveAttachment', function(NewAttachments)
         if NewAttachments ~= false then
             local Attachies = {}
-            RemoveWeaponComponentFromPed(ped, joaat(WeaponData.name), joaat(Attachment))
-            for _, v in pairs(NewAttachments) do
-                for attachmentType, weapons in pairs(allAttachments) do
-                    local componentHash = weapons[WeaponData.name]
-                    if componentHash and v.component == componentHash then
-                        local label = itemInfo and itemInfo.label or 'Unknown'
+
+            -- Keep the weapon data returned to NUI in sync with qb-weapons after detach.
+            WeaponData.info = WeaponData.info or {}
+            WeaponData.info.attachments = NewAttachments or {}
+
+            RemoveWeaponComponentFromPed(ped, joaat(WeaponData.name), ComponentToHash(Attachment) or joaat(Attachment))
+            for _, v in pairs(NewAttachments or {}) do
+                for attachmentType, weapons in pairs(allAttachments or {}) do
+                    local componentHash = GetConfiguredComponent(weapons, WeaponData.name)
+                    if componentHash and ComponentsMatch(v.component, componentHash) then
+                        local labelItem = QBCore.Shared.Items[attachmentType] or QBCore.Shared.Items[attachmentKey]
                         Attachies[#Attachies + 1] = {
                             attachment = attachmentType,
-                            label = label,
+                            label = (labelItem and labelItem.label) or attachmentType,
+                            component = componentHash,
                         }
                     end
                 end
             end
-            local DJATA = {
-                Attachments = Attachies,
-                WeaponData = WeaponData,
-                itemInfo = itemInfo,
-            }
-            cb(DJATA)
+            cb({ ok = true, Attachments = Attachies, WeaponData = WeaponData, itemInfo = itemInfo })
         else
-            RemoveWeaponComponentFromPed(ped, joaat(WeaponData.name), joaat(Attachment))
-            cb({})
+            cb({ ok = false, error = 'server_rejected', Attachments = FormatWeaponAttachments(WeaponData), WeaponData = WeaponData })
         end
-    end, data.AttachmentData, WeaponData)
+    end, AttachmentData, WeaponData)
 end)
 
 RegisterNUICallback('GetNearbyPlayers', function(_, cb)

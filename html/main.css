@@ -1543,3 +1543,251 @@ body::after,
     width: var(--rs-zskelly-width) !important;
     height: var(--rs-zskelly-height) !important;
 }
+
+
+/* ============================================================
+   RS / AP Rework-style Weapon Attachment Inspection Panel
+   Added for v2.5.3 slot swap + attachment panel patch
+   ============================================================ */
+.attachment-panel-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10070;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.30);
+    pointer-events: all;
+}
+
+.rs-rework-attachment-panel {
+    width: 720px;
+    max-width: calc(100vw - 48px);
+    border: 1px solid rgba(132, 255, 0, 0.48);
+    border-radius: 10px;
+    background: linear-gradient(165deg, rgba(3, 8, 2, 0.98), rgba(10, 18, 5, 0.98));
+    box-shadow: 0 0 65px rgba(80, 180, 20, 0.26), inset 0 0 65px rgba(0, 0, 0, 0.70);
+    color: var(--green);
+    font-family: 'Share Tech Mono', monospace;
+    overflow: hidden;
+}
+
+.rs-rework-attachment-panel .attachment-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(132, 255, 0, 0.22);
+    background: rgba(0, 0, 0, 0.42);
+}
+
+.rs-rework-attachment-panel .attachment-header h3 {
+    margin: 0;
+    font-family: 'Creepster', cursive;
+    font-size: 25px;
+    font-weight: 400;
+    letter-spacing: 3px;
+    color: var(--green);
+    text-shadow: 0 0 12px rgba(132, 255, 0, 0.55);
+}
+
+.rs-rework-attachment-panel .close-panel-button {
+    width: 32px;
+    height: 32px;
+    border: 1px solid rgba(132, 255, 0, 0.42);
+    border-radius: 5px;
+    background: rgba(80, 180, 20, 0.10);
+    color: var(--green);
+    cursor: pointer;
+    font-size: 22px;
+    line-height: 28px;
+    font-family: Arial, sans-serif;
+}
+
+.rs-rework-attachment-panel .close-panel-button:hover {
+    background: rgba(132, 255, 0, 0.20);
+    box-shadow: 0 0 18px rgba(132, 255, 0, 0.30);
+}
+
+.rs-rework-attachment-panel .inspection-content {
+    display: grid;
+    grid-template-columns: 290px 1fr;
+    gap: 20px;
+    padding: 20px;
+}
+
+.rs-rework-attachment-panel .weapon-display-column {
+    border-right: 1px solid rgba(132, 255, 0, 0.18);
+    padding-right: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.rs-rework-attachment-panel .weapon-main-image {
+    width: 245px;
+    height: 150px;
+    border: 1px solid rgba(132, 255, 0, 0.20);
+    border-radius: 7px;
+    background: rgba(0, 0, 0, 0.42);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+}
+
+.rs-rework-attachment-panel .weapon-main-image img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 0 12px rgba(132, 255, 0, 0.20));
+}
+
+.rs-rework-attachment-panel .weapon-title {
+    margin: 12px 0 10px;
+    color: rgba(220, 255, 170, 0.95);
+    font-size: 15px;
+    text-align: center;
+    letter-spacing: 1px;
+}
+
+.rs-rework-attachment-panel .weapon-stats {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.rs-rework-attachment-panel .stat-item {
+    width: 100%;
+}
+
+.rs-rework-attachment-panel .stat-label {
+    display: block;
+    color: rgba(132, 255, 0, 0.58);
+    font-size: 9px;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+}
+
+.rs-rework-attachment-panel .stat-value {
+    display: block;
+    color: rgba(220, 255, 170, 0.94);
+    font-size: 12px;
+    word-break: break-word;
+}
+
+.rs-rework-attachment-panel .stat-bar-container {
+    width: 100%;
+    height: 8px;
+    border: 1px solid rgba(132, 255, 0, 0.22);
+    background: rgba(0, 0, 0, 0.50);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.rs-rework-attachment-panel .stat-bar {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #4a7f12, #8ad92e, #c8ff5a);
+    box-shadow: 0 0 9px rgba(132, 255, 0, 0.40);
+}
+
+.rs-rework-attachment-panel .attachment-slots-column {
+    min-width: 0;
+}
+
+.rs-rework-attachment-panel .column-title {
+    margin: 0 0 12px;
+    color: rgba(220, 255, 170, 0.92);
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.rs-rework-attachment-panel .slots-container {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(90px, 1fr));
+    gap: 12px;
+}
+
+.rs-rework-attachment-panel .attachment-slot-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.rs-rework-attachment-panel .attachment-slot-box {
+    width: 82px;
+    height: 82px;
+    border: 1px dashed rgba(132, 255, 0, 0.26);
+    border-radius: 7px;
+    background: rgba(0, 0, 0, 0.42);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    transition: all 0.15s ease;
+}
+
+.rs-rework-attachment-panel .attachment-slot-box.filled {
+    cursor: pointer;
+    border-style: solid;
+    border-color: rgba(132, 255, 0, 0.50);
+    background: rgba(80, 180, 20, 0.10);
+    box-shadow: 0 0 16px rgba(132, 255, 0, 0.15);
+}
+
+.rs-rework-attachment-panel .attachment-slot-box.filled:hover {
+    background: rgba(132, 255, 0, 0.18);
+    box-shadow: 0 0 22px rgba(132, 255, 0, 0.30);
+    transform: translateY(-1px);
+}
+
+.rs-rework-attachment-panel .attachment-slot-box img {
+    max-width: 58px;
+    max-height: 58px;
+    object-fit: contain;
+    filter: drop-shadow(0 0 8px rgba(132, 255, 0, 0.25));
+}
+
+.rs-rework-attachment-panel .empty-slot-icon {
+    color: rgba(132, 255, 0, 0.30);
+    font-size: 22px;
+}
+
+.rs-rework-attachment-panel .slot-type-label {
+    color: rgba(220, 255, 170, 0.86);
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-align: center;
+    text-transform: uppercase;
+}
+
+.rs-rework-attachment-panel .attachment-panel-note {
+    margin-top: 14px;
+    color: rgba(132, 255, 0, 0.62);
+    font-size: 10px;
+    text-align: center;
+    letter-spacing: 1px;
+}
+
+@media (max-width: 850px) {
+    .rs-rework-attachment-panel .inspection-content {
+        grid-template-columns: 1fr;
+    }
+
+    .rs-rework-attachment-panel .weapon-display-column {
+        border-right: 0;
+        border-bottom: 1px solid rgba(132, 255, 0, 0.18);
+        padding-right: 0;
+        padding-bottom: 18px;
+    }
+
+    .rs-rework-attachment-panel .slots-container {
+        grid-template-columns: repeat(2, minmax(90px, 1fr));
+    }
+}

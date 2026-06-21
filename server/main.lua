@@ -551,12 +551,13 @@ QBCore.Functions.CreateCallback('qb-inventory:server:attemptPurchase',
         end
     end
 
-    if shopInfo.items[itemInfo.slot].name ~= itemInfo.name then
+    local shopItem = shopInfo.items[itemInfo.slot]
+    if not shopItem or shopItem.name ~= itemInfo.name then
         cb(false)
         return
     end
 
-    if amount > shopInfo.items[itemInfo.slot].amount then
+    if amount > shopItem.amount then
         TriggerClientEvent('QBCore:Notify', source,
                            'Cannot purchase larger quantity than currently in stock',
                            'error')
@@ -564,13 +565,13 @@ QBCore.Functions.CreateCallback('qb-inventory:server:attemptPurchase',
         return
     end
 
-    if not CanAddItem(source, itemInfo.name, amount) then
+    if not CanAddItem(source, shopItem.name, amount) then
         TriggerClientEvent('QBCore:Notify', source, 'Cannot hold item', 'error')
         cb(false)
         return
     end
 
-    local price = shopInfo.items[itemInfo.slot].price * amount
+    local price = shopItem.price * amount
     local canPay = false
 
     if price == 0 then
@@ -588,9 +589,13 @@ QBCore.Functions.CreateCallback('qb-inventory:server:attemptPurchase',
     end
 
     if canPay then
-        if AddItem(source, itemInfo.name, amount, nil, itemInfo.info,
+        -- Use the registered shop item as the source of truth.
+        -- This keeps prebuilt weapon-store metadata like info.attachments/components intact.
+        local purchaseInfo = CopyTable(shopItem.info or itemInfo.info or {})
+
+        if AddItem(source, shopItem.name, amount, nil, purchaseInfo,
                    'shop-purchase') then
-            TriggerEvent('qb-shops:server:UpdateShopItems', shop, itemInfo,
+            TriggerEvent('qb-shops:server:UpdateShopItems', shop, shopItem,
                          amount)
             TriggerClientEvent('qb-inventory:client:updateInventory', source)
             cb(true)

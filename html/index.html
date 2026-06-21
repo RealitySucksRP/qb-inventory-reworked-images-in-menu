@@ -157,13 +157,90 @@
                 </div>
             </div>
 
-            <!-- WEAPON ATTACHMENTS -->
-            <div class="weapon-attachments" v-if="showWeaponAttachments">
-                <img class="weapon" :src="'images/' + selectedWeapon.image" alt="" />
-                <div class="attachment-slot" v-for="(attachment, i) in selectedWeaponAttachments" :key="i" @click="removeAttachment(attachment)">
-                    <img :src="'images/' + attachment.attachment + '.png'" alt="" />
+            <!-- REWORK WEAPON ATTACHMENT INSPECTION PANEL -->
+            <div class="attachment-panel-overlay" v-if="isAttachmentPanelOpen && selectedWeaponForPanel" @mousedown.stop @click.stop>
+                    <div class="attachment-panel rs-rework-attachment-panel">
+                        <div class="attachment-header">
+                            <h3>Weapon Inspection</h3>
+                            <button @click="closeAttachmentPanel" class="close-panel-button">&times;</button>
+                        </div>
+
+                        <div class="inspection-content">
+                            <div class="weapon-display-column">
+                                <div class="weapon-main-image">
+                                    <img :src="'images/' + selectedWeaponForPanel.image" :alt="selectedWeaponForPanel.label || selectedWeaponForPanel.name" @error="setMissingImage" />
+                                </div>
+                                <h4 class="weapon-title">{{ selectedWeaponForPanel.label || selectedWeaponForPanel.name }}</h4>
+                                <div class="weapon-stats">
+                                    <div class="stat-item">
+                                        <span class="stat-label">Serial No.</span>
+                                        <span class="stat-value">{{ (selectedWeaponForPanel.info && (selectedWeaponForPanel.info.serie || selectedWeaponForPanel.info.serial)) || 'N/A' }}</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">Quality</span>
+                                        <div class="stat-bar-container">
+                                            <div class="stat-bar" :style="{ width: Math.max(0, Math.min(100, (selectedWeaponForPanel.info && selectedWeaponForPanel.info.quality) || 0)) + '%' }"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="attachment-slots-column">
+                                <h4 class="column-title">Attachment Slots</h4>
+                                <div class="slots-container">
+                                    <div class="attachment-slot-wrapper">
+                                        <div class="attachment-slot-box" :class="{ 'filled': getAttachmentByType('suppressor', 'muzzle') }" @click="getAttachmentByType('suppressor', 'muzzle') && removeAttachment(getAttachmentByType('suppressor', 'muzzle'))" v-tooltip.left-end="getAttachmentTooltip('suppressor', 'muzzle')">
+                                            <img v-if="getAttachmentByType('suppressor', 'muzzle')" :src="'images/' + getAttachmentByType('suppressor', 'muzzle').attachment + '.png'" @error="setMissingImage" />
+                                            <i v-else class="fa-solid fa-plus empty-slot-icon"></i>
+                                        </div>
+                                        <span class="slot-type-label">Muzzle</span>
+                                    </div>
+
+                                    <div class="attachment-slot-wrapper">
+                                        <div class="attachment-slot-box" :class="{ 'filled': getAttachmentByType('flashlight') }" @click="getAttachmentByType('flashlight') && removeAttachment(getAttachmentByType('flashlight'))" v-tooltip.left-end="getAttachmentTooltip('flashlight')">
+                                            <img v-if="getAttachmentByType('flashlight')" :src="'images/' + getAttachmentByType('flashlight').attachment + '.png'" @error="setMissingImage" />
+                                            <i v-else class="fa-solid fa-plus empty-slot-icon"></i>
+                                        </div>
+                                        <span class="slot-type-label">Flashlight</span>
+                                    </div>
+
+                                    <div class="attachment-slot-wrapper">
+                                        <div class="attachment-slot-box" :class="{ 'filled': getAttachmentByType('grip') }" @click="getAttachmentByType('grip') && removeAttachment(getAttachmentByType('grip'))" v-tooltip.left-end="getAttachmentTooltip('grip')">
+                                            <img v-if="getAttachmentByType('grip')" :src="'images/' + getAttachmentByType('grip').attachment + '.png'" @error="setMissingImage" />
+                                            <i v-else class="fa-solid fa-plus empty-slot-icon"></i>
+                                        </div>
+                                        <span class="slot-type-label">Grip</span>
+                                    </div>
+
+                                    <div class="attachment-slot-wrapper">
+                                        <div class="attachment-slot-box" :class="{ 'filled': getAttachmentByType('scope', 'optic', 'holo') }" @click="getAttachmentByType('scope', 'optic', 'holo') && removeAttachment(getAttachmentByType('scope', 'optic', 'holo'))" v-tooltip.left-end="getAttachmentTooltip('scope', 'optic', 'holo')">
+                                            <img v-if="getAttachmentByType('scope', 'optic', 'holo')" :src="'images/' + getAttachmentByType('scope', 'optic', 'holo').attachment + '.png'" @error="setMissingImage" />
+                                            <i v-else class="fa-solid fa-plus empty-slot-icon"></i>
+                                        </div>
+                                        <span class="slot-type-label">Optics</span>
+                                    </div>
+
+                                    <div class="attachment-slot-wrapper">
+                                        <div class="attachment-slot-box" :class="{ 'filled': getAttachmentByType('clip', 'drum', 'magazine') }" @click="getAttachmentByType('clip', 'drum', 'magazine') && removeAttachment(getAttachmentByType('clip', 'drum', 'magazine'))" v-tooltip.left-end="getAttachmentTooltip('clip', 'drum', 'magazine')">
+                                            <img v-if="getAttachmentByType('clip', 'drum', 'magazine')" :src="'images/' + getAttachmentByType('clip', 'drum', 'magazine').attachment + '.png'" @error="setMissingImage" />
+                                            <i v-else class="fa-solid fa-plus empty-slot-icon"></i>
+                                        </div>
+                                        <span class="slot-type-label">Magazine</span>
+                                    </div>
+
+                                    <div class="attachment-slot-wrapper">
+                                        <div class="attachment-slot-box" :class="{ 'filled': getAttachmentByType('camo', 'finish', 'skin', 'tint') }" @click="getAttachmentByType('camo', 'finish', 'skin', 'tint') && removeAttachment(getAttachmentByType('camo', 'finish', 'skin', 'tint'))" v-tooltip.left-end="getAttachmentTooltip('camo', 'finish', 'skin', 'tint')">
+                                            <img v-if="getAttachmentByType('camo', 'finish', 'skin', 'tint')" :src="'images/' + getAttachmentByType('camo', 'finish', 'skin', 'tint').attachment + '.png'" @error="setMissingImage" />
+                                            <i v-else class="fa-solid fa-plus empty-slot-icon"></i>
+                                        </div>
+                                        <span class="slot-type-label">Skin / Tint</span>
+                                    </div>
+                                </div>
+                                <div class="attachment-panel-note">Click a filled slot to remove that attachment.</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
 
             <!-- DRAGGED ITEM -->
             <div v-if="draggedItem" class="item-slot" :class="{ 'dragged-item': draggedItem }" :style="{ top: dragY + 'px', left: dragX + 'px' }">

@@ -124,6 +124,10 @@ const InventoryContainer = Vue.createApp({
                 selectedWeapon: null,
                 showWeaponAttachments: false,
                 selectedWeaponAttachments: [],
+                isAttachmentPanelOpen: false,
+                selectedWeaponForPanel: null,
+                selectedWeaponAttachmentsForPanel: [],
+                isRemovingAttachment: false,
                 // Dragging and dropping
                 currentlyDraggingItem: null,
                 currentlyDraggingSlot: null,
@@ -508,66 +512,71 @@ const InventoryContainer = Vue.createApp({
 
                 const sourceInventory = this.getInventoryByType(this.dragStartInventoryType);
                 const targetInventory = this.getInventoryByType(targetInventoryType);
-
                 const sourceItem = sourceInventory[this.currentlyDraggingSlot];
                 if (!sourceItem) {
                     throw new Error("No item in the source slot to transfer");
                 }
 
-                const amountToTransfer = this.transferAmount !== null ? this.transferAmount : sourceItem.amount;
-                if (sourceItem.amount < amountToTransfer) {
+                const originalAmount = Number(sourceItem.amount) || 0;
+                const amountToTransfer = this.transferAmount !== null ? Number(this.transferAmount) : originalAmount;
+                if (!amountToTransfer || amountToTransfer <= 0 || originalAmount < amountToTransfer) {
                     throw new Error("Insufficient amount of item in source inventory");
                 }
 
                 if (targetInventoryType !== this.dragStartInventoryType) {
-                    if (targetInventoryType == "other") {
-                        const totalWeightAfterTransfer = this.otherInventoryWeight + sourceItem.weight * amountToTransfer;
-                        if (totalWeightAfterTransfer > this.otherInventoryMaxWeight) {
-                            throw new Error("Insufficient weight capacity in target inventory");
-                        }
-                    }
-                    else if (targetInventoryType == "player") {
-                        const totalWeightAfterTransfer = this.playerWeight + sourceItem.weight * amountToTransfer;
-                        if (totalWeightAfterTransfer > this.maxWeight) {
-                            throw new Error("Insufficient weight capacity in player inventory");
-                        }
+                    const targetWeight = targetInventoryType === "player" ? this.playerWeight : this.otherInventoryWeight;
+                    const maxTargetWeight = targetInventoryType === "player" ? this.maxWeight : this.otherInventoryMaxWeight;
+                    if (targetWeight + sourceItem.weight * amountToTransfer > maxTargetWeight) {
+                        throw new Error("Insufficient weight capacity in target inventory");
                     }
                 }
 
                 const targetItem = targetInventory[targetSlotNumber];
 
                 if (targetItem) {
-                    if (sourceItem.name === targetItem.name && targetItem.unique) {
+                    if (sourceItem.name === targetItem.name && (targetItem.unique || sourceItem.unique)) {
                         this.inventoryError(this.currentlyDraggingSlot);
                         return;
                     }
-                    if (!targetItem.unique && this.sameStackIdentity(sourceItem, targetItem)) {
+
+                    if (!targetItem.unique && !sourceItem.unique && this.sameStackIdentity(sourceItem, targetItem)) {
                         targetItem.amount += amountToTransfer;
                         sourceItem.amount -= amountToTransfer;
                         if (sourceItem.amount <= 0) {
                             delete sourceInventory[this.currentlyDraggingSlot];
                         }
-                        this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, targetSlotNumber, sourceItem.amount, amountToTransfer);
+                        // Send the original source amount, not the remaining amount.
+                        this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, targetSlotNumber, originalAmount, amountToTransfer);
                     } else {
-                        sourceInventory[this.currentlyDraggingSlot] = targetItem;
-                        targetInventory[targetSlotNumber] = sourceItem;
+                        // Slot swap fix: when dragging a weapon/item onto an occupied slot, the amount moved must be
+                        // the source item amount. Sending the target stack amount makes the server reject swaps such as
+                        // weapon x1 onto water x5.
+                        const tempSourceItem = { ...sourceItem };
+                        const tempTargetItem = { ...targetItem };
+                        sourceInventory[this.currentlyDraggingSlot] = tempTargetItem;
+                        targetInventory[targetSlotNumber] = tempSourceItem;
                         sourceInventory[this.currentlyDraggingSlot].slot = this.currentlyDraggingSlot;
                         targetInventory[targetSlotNumber].slot = targetSlotNumber;
-                        this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, targetSlotNumber, sourceItem.amount, targetItem.amount);
+                        this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, targetSlotNumber, originalAmount, originalAmount);
                     }
                 } else {
-                    sourceItem.amount -= amountToTransfer;
-                    if (sourceItem.amount <= 0) {
-                        delete sourceInventory[this.currentlyDraggingSlot];
-                    }
+                    const remainingAmount = originalAmount - amountToTransfer;
                     targetInventory[targetSlotNumber] = { ...sourceItem, amount: amountToTransfer, slot: targetSlotNumber };
-                    this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, targetSlotNumber, sourceItem.amount, amountToTransfer);
+
+                    if (remainingAmount <= 0) {
+                        delete sourceInventory[this.currentlyDraggingSlot];
+                    } else {
+                        sourceItem.amount = remainingAmount;
+                    }
+
+                    this.postInventoryData(this.dragStartInventoryType, targetInventoryType, this.currentlyDraggingSlot, targetSlotNumber, originalAmount, amountToTransfer);
                 }
             } catch (error) {
                 console.error(error.message);
                 this.inventoryError(this.currentlyDraggingSlot);
             } finally {
                 this.clearDragData();
+                this.clearTransferAmount();
             }
         },
         async handlePurchase(targetSlot, sourceSlot, sourceItem, transferAmount) {
@@ -849,57 +858,95 @@ const InventoryContainer = Vue.createApp({
                 document.body.removeChild(el);
             }
         },
-        openWeaponAttachments() {
-            if (!this.contextMenuItem) {
+        async openWeaponAttachments(item) {
+            const weaponItem = item || this.contextMenuItem;
+            if (!weaponItem || !weaponItem.name || !weaponItem.name.startsWith("weapon_")) {
                 return;
             }
-            if (!this.showWeaponAttachments) {
-                this.selectedWeapon = this.contextMenuItem;
-                this.showWeaponAttachments = true;
-                axios
-                    .post("https://qb-inventory/GetWeaponData", JSON.stringify({ weapon: this.selectedWeapon.name, ItemData: this.selectedWeapon }))
-                    .then((response) => {
-                        const data = response.data;
-                        if (data.AttachmentData !== null && data.AttachmentData !== undefined) {
-                            if (data.AttachmentData.length > 0) {
-                                this.selectedWeaponAttachments = data.AttachmentData;
-                            }
-                        }
-                    })
-                    .catch((error) => {
-                        console.error(error);
-                    });
-            } else {
-                this.showWeaponAttachments = false;
-                this.selectedWeapon = null;
-                this.selectedWeaponAttachments = [];
+
+            this.selectedWeapon = weaponItem;
+            this.selectedWeaponForPanel = weaponItem;
+            this.selectedWeaponAttachments = [];
+            this.selectedWeaponAttachmentsForPanel = [];
+            this.isAttachmentPanelOpen = true;
+            this.showWeaponAttachments = true;
+            this.showContextMenu = false;
+
+            try {
+                const response = await axios.post("https://qb-inventory/GetWeaponData", {
+                    weapon: weaponItem.name,
+                    ItemData: weaponItem,
+                });
+                const data = response.data || {};
+                const attachments = Array.isArray(data.AttachmentData) ? data.AttachmentData : [];
+                this.selectedWeaponAttachments = attachments;
+                this.selectedWeaponAttachmentsForPanel = attachments;
+                if (data.WeaponData) {
+                    this.selectedWeaponForPanel = { ...weaponItem, ...data.WeaponData, info: weaponItem.info || data.WeaponData.info || {} };
+                    this.selectedWeapon = this.selectedWeaponForPanel;
+                }
+            } catch (error) {
+                console.error("Failed to get weapon attachments:", error);
+                this.closeAttachmentPanel();
             }
         },
-        removeAttachment(attachment) {
-            if (!this.selectedWeapon) {
+        closeAttachmentPanel() {
+            this.isAttachmentPanelOpen = false;
+            this.showWeaponAttachments = false;
+            this.selectedWeapon = null;
+            this.selectedWeaponForPanel = null;
+            this.selectedWeaponAttachments = [];
+            this.selectedWeaponAttachmentsForPanel = [];
+            this.isRemovingAttachment = false;
+        },
+        async removeAttachment(attachment) {
+            if (!this.selectedWeaponForPanel || !attachment || this.isRemovingAttachment) {
                 return;
             }
-            const index = this.selectedWeaponAttachments.indexOf(attachment);
-            if (index !== -1) {
-                this.selectedWeaponAttachments.splice(index, 1);
-            }
-            axios
-                .post("https://qb-inventory/RemoveAttachment", JSON.stringify({ AttachmentData: attachment, WeaponData: this.selectedWeapon }))
-                .then((response) => {
-                    this.selectedWeapon = response.data.WeaponData;
-                    if (response.data.Attachments) {
-                        this.selectedWeaponAttachments = response.data.Attachments;
-                    }
-                    const nextSlot = this.findNextAvailableSlot(this.playerInventory);
-                    if (nextSlot !== null) {
-                        response.data.itemInfo.amount = 1;
-                        this.playerInventory[nextSlot] = response.data.itemInfo;
-                    }
-                })
-                .catch((error) => {
-                    console.error(error);
-                    this.selectedWeaponAttachments.splice(index, 0, attachment);
+
+            this.isRemovingAttachment = true;
+            try {
+                const response = await axios.post("https://qb-inventory/RemoveAttachment", {
+                    AttachmentData: attachment,
+                    WeaponData: this.selectedWeaponForPanel,
                 });
+
+                const data = response.data || {};
+                if (data.ok === false) {
+                    console.error("Error removing attachment:", data.error || data);
+                    return;
+                }
+
+                const attachments = Array.isArray(data.Attachments) ? data.Attachments : [];
+                this.selectedWeaponAttachments = attachments;
+                this.selectedWeaponAttachmentsForPanel = attachments;
+
+                if (data.WeaponData) {
+                    this.selectedWeaponForPanel = { ...this.selectedWeaponForPanel, ...data.WeaponData };
+                    this.selectedWeapon = this.selectedWeaponForPanel;
+                }
+            } catch (error) {
+                console.error("Error removing attachment:", error);
+            } finally {
+                this.isRemovingAttachment = false;
+            }
+        },
+        getAttachmentByType(...types) {
+            if (!this.selectedWeaponAttachmentsForPanel || this.selectedWeaponAttachmentsForPanel.length === 0) {
+                return null;
+            }
+
+            return this.selectedWeaponAttachmentsForPanel.find((att) => {
+                const name = ((att && att.attachment) || "").toLowerCase();
+                return types.some((type) => name.includes(type));
+            }) || null;
+        },
+        getAttachmentTooltip(...types) {
+            const attachment = this.getAttachmentByType(...types);
+            if (attachment) {
+                return `Detach ${attachment.label || attachment.attachment}`;
+            }
+            return "Empty attachment slot";
         },
         generateTooltipContent(item) {
             if (!item) {
