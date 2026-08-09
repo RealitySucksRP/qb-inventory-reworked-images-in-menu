@@ -1,4 +1,4 @@
-# qb-inventory -- RealitySucks Edition
+﻿# qb-inventory -- RealitySucks Edition
 
 Custom UI redesign of qb-inventory for FiveM. All original logic, drag-drop, stash system, and Vue.js app are untouched. Only the visual layer was rebuilt -- `main.css` -- to bring the inventory up to standard. 
 If image thumbnails are broken on attachments make sure
@@ -175,4 +175,5 @@ https://github.com/Anya-Project/qb-inventory-rework
 * Enlarged and sharpened inventory header text, weight text, slot numbers, amount text, and bottom hints.
 * Enlarged item icons inside the inventory squares.
 * Increased dungeon background art size/contrast so the images stand out more behind the glass UI.
+
 
