@@ -2,6 +2,12 @@
   <img src="images/punk.png" alt="RS Punk Inventory Preview" width="100%">
 </p>
 
+<p align="center">
+  <a href="https://ko-fi.com/R6R51XYJ6N">
+    <img src="https://img.shields.io/badge/Support%20me%20on%20Ko--fi-72A4F2?logo=ko-fi&logoColor=white" alt="Support me on Ko-fi">
+  </a>
+</p>
+
 # ⚡ RealitySucksRP qb-inventory — Custom UI Edition ⚡
 
 # RS Punk Inventory
