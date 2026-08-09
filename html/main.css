@@ -1385,7 +1385,7 @@ body::after,
 .inventory-container * {
     -webkit-font-smoothing: antialiased !important;
     -moz-osx-font-smoothing: grayscale !important;
-    text-rendering: geometricPrecision !important;
+    text-rendering: optimizeLegibility !important;
 }
 
 .inventory-container .inventory-label,
@@ -1563,13 +1563,15 @@ body::after,
 .rs-rework-attachment-panel {
     width: 720px;
     max-width: calc(100vw - 48px);
+    max-height: calc(100vh - 32px);
+    overflow-x: hidden;
+    overflow-y: auto;
     border: 1px solid rgba(132, 255, 0, 0.48);
     border-radius: 10px;
     background: linear-gradient(165deg, rgba(3, 8, 2, 0.98), rgba(10, 18, 5, 0.98));
     box-shadow: 0 0 65px rgba(80, 180, 20, 0.26), inset 0 0 65px rgba(0, 0, 0, 0.70);
     color: var(--green);
     font-family: 'Share Tech Mono', monospace;
-    overflow: hidden;
 }
 
 .rs-rework-attachment-panel .attachment-header {
@@ -1790,4 +1792,19 @@ body::after,
     .rs-rework-attachment-panel .slots-container {
         grid-template-columns: repeat(2, minmax(90px, 1fr));
     }
+}
+
+/* Overflow list for attachments that do not fit the six standard slots
+   (compensators, barrels, exotic shop items) so nothing installed is invisible. */
+.rs-rework-attachment-panel .overflow-attachments {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px dashed rgba(132, 255, 0, 0.20);
+}
+
+.rs-rework-attachment-panel .overflow-attachments .slot-type-label {
+    max-width: 90px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }

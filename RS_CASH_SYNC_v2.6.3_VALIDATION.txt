@@ -1,0 +1,14 @@
+RS Punk qb-inventory v2.6.3 validation
+- cash_sync.lua parses with Lua syntax checker.
+- html/app.js passes node --check.
+- Cash UI amount formatter renders cash as $#,### and leaves normal items as x#.
+- Account->item synchronization writes one canonical physical cash stack directly.
+- Existing duplicate cash stacks are consolidated into the canonical stack during account repair.
+- Item->account synchronization keeps QBCore PlayerData.money.cash equal to physical cash.
+- No manual server-side QBCore:Server:OnMoneyChange re-fire remains in cash_sync.lua.
+- Client no longer derives HUD cash from stale local item snapshots.
+- Server authoritative cash-state request and 5-second drift reconciliation are present.
+- /cashcheck diagnostic is present.
+- v2.6.1 floor-drop files and v2.6.2 cumulative fixes remain included.
+- No SQL/config/CSS/image/item-definition changes.
+Live FiveM confirmation still required.

@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'Kakarot / RealitySucksRP'
-description 'Open-source custom UI qb-inventory with AP/rework backend, cash-as-item support, and HUD compatibility'
-version '2.5.1-rs-punk-open-source'
+description 'Open-source custom UI qb-inventory with AP/rework backend, cash-as-item support, right-click options, weapon attachments, drops, and HUD compatibility.'
+version '2.6.3-rs-punk-cash-authority'
 
 dependencies {
     'qb-core',
@@ -29,6 +29,7 @@ server_scripts {
     '@oxmysql/lib/MySQL.lua',
     'server/main.lua',
     'server/functions.lua',
+    'server/cash_sync.lua',
     'server/commands.lua',
     'server/compat.lua'
 }

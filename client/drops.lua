@@ -5,6 +5,35 @@ local bagObject = nil
 local heldDrop = nil
 CurrentDrop = nil
 
+local function ResolveDropEntity(netId, timeoutMs)
+    local deadline = GetGameTimer() + (timeoutMs or 2500)
+
+    while GetGameTimer() < deadline and not NetworkDoesNetworkIdExist(netId) do
+        Wait(10)
+    end
+    if not NetworkDoesNetworkIdExist(netId) then return nil end
+
+    local bag = NetworkGetEntityFromNetworkId(netId)
+    while GetGameTimer() < deadline and not DoesEntityExist(bag) do
+        Wait(10)
+        bag = NetworkGetEntityFromNetworkId(netId)
+    end
+
+    if not DoesEntityExist(bag) then return nil end
+    return bag
+end
+
+local function PrepareDropEntity(netId)
+    CreateThread(function()
+        local bag = ResolveDropEntity(netId, 5000)
+        if not bag then return end
+
+        SetEntityAsMissionEntity(bag, true, true)
+        PlaceObjectOnGroundProperly(bag)
+        FreezeEntityPosition(bag, true)
+    end)
+end
+
 -- Functions
 
 function GetDrops()
@@ -34,16 +63,14 @@ end
 -- Events
 
 RegisterNetEvent('qb-inventory:client:removeDropTarget', function(dropId)
-    while not NetworkDoesNetworkIdExist(dropId) do Wait(10) end
-    local bag = NetworkGetEntityFromNetworkId(dropId)
-    while not DoesEntityExist(bag) do Wait(10) end
+    local bag = ResolveDropEntity(dropId, 2500)
+    if not bag then return end
     exports['qb-target']:RemoveTargetEntity(bag)
 end)
 
 RegisterNetEvent('qb-inventory:client:setupDropTarget', function(dropId)
-    while not NetworkDoesNetworkIdExist(dropId) do Wait(10) end
-    local bag = NetworkGetEntityFromNetworkId(dropId)
-    while not DoesEntityExist(bag) do Wait(10) end
+    local bag = ResolveDropEntity(dropId, 10000)
+    if not bag then return end
     local newDropId = 'drop-' .. dropId
     exports['qb-target']:AddTargetEntity(bag, {
         options = {
@@ -93,32 +120,22 @@ end)
 RegisterNUICallback('DropItemFromUI', function(item, cb)
     QBCore.Functions.TriggerCallback('qb-inventory:server:createDrop', function(responseData)
         if responseData and responseData.netId then
-            local netId = responseData.netId
-            while not NetworkDoesNetworkIdExist(netId) do Wait(10) end
-            local bag = NetworkGetEntityFromNetworkId(netId)
-            while not DoesEntityExist(bag) do Wait(10) end
-            SetEntityAsMissionEntity(bag, true, true)
-            PlaceObjectOnGroundProperly(bag)
-            FreezeEntityPosition(bag, true)
-            cb(responseData.dropData)
+            -- Return the server-authoritative player + drop inventories first.
+            -- Entity placement is visual work and must never hold the NUI callback open.
+            cb(responseData)
+            PrepareDropEntity(responseData.netId)
         else
             cb(false)
         end
     end, item)
 end)
 
--- RealitySucksRP legacy UI compatibility: the custom UI expects DropItem to return the drop name string.
+-- RealitySucksRP legacy UI compatibility. Older UIs expect only dropData.
 RegisterNUICallback('DropItem', function(item, cb)
     QBCore.Functions.TriggerCallback('qb-inventory:server:createDrop', function(responseData)
         if responseData and responseData.netId then
-            local netId = responseData.netId
-            while not NetworkDoesNetworkIdExist(netId) do Wait(10) end
-            local bag = NetworkGetEntityFromNetworkId(netId)
-            while not DoesEntityExist(bag) do Wait(10) end
-            SetEntityAsMissionEntity(bag, true, true)
-            PlaceObjectOnGroundProperly(bag)
-            FreezeEntityPosition(bag, true)
             cb(responseData.dropData)
+            PrepareDropEntity(responseData.netId)
         else
             cb(false)
         end
