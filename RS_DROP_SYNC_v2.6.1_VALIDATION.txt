@@ -1,0 +1,25 @@
+RS qb-inventory v2.6.1 — Static Validation
+============================================
+
+[PASS] Active manifest version: 2.6.1-rs-punk-drop-sync
+[PASS] Active NUI remains html/index.html + html/app.js
+[PASS] JavaScript syntax: node --check html/app.js
+[PASS] JavaScript harness: authoritative drop response replaces both panels
+[PASS] JavaScript harness: rejected/ghost move is reconciled to server snapshot
+[PASS] Lua parse: server/main.lua
+[PASS] Lua parse: client/main.lua
+[PASS] Lua parse: client/drops.lua
+[PASS] Lua parse: server/functions.lua after replacing FiveM backtick hash literals
+[PASS] Lua parse: server/commands.lua
+[PASS] Authoritative updateInventory payload present in AddItem/RemoveItem paths
+[PASS] Drop NUI callback returns before entity placement wait
+[PASS] Drop request lock and operation idempotency cache present
+[PASS] Failed drop entity creation has server-side refund paths
+[PASS] SetInventoryData returns authoritative player/other inventory snapshot
+[PASS] No SQL, config, CSS, image, or item-definition changes
+
+Runtime limitation
+------------------
+A live FiveM/OneSync/QBCore session is not available in this environment.
+Final confirmation still requires the included in-game cash, black-money, item,
+weapon, partial-stack, merge, close/reopen, and two-client drop tests.

@@ -1,155 +1,178 @@
-# qb-inventory-punk
+# qb-inventory -- RealitySucks Edition
 
-Open-source custom UI qb-inventory for FiveM --  Punk Edition. Holographic glass panels, punk art behind the menu, cash-as-item support, AP rework backend.
+Custom UI redesign of qb-inventory for FiveM. All original logic, drag-drop, stash system, and Vue.js app are untouched. Only the visual layer was rebuilt -- `main.css` -- to bring the inventory up to standard. 
+If image thumbnails are broken on attachments make sure
+your items.lua and qb-inventory images match the name. :)
 
-[![License](https://img.shields.io/badge/license-GPL--3.0-red)](LICENSE)
-[![Framework](https://img.shields.io/badge/framework-QBCore-blue)](https://github.com/qbcore-framework/qb-core)
-[![Version](https://img.shields.io/badge/version-2.5.1--rs--punk-green)](https://github.com/RealitySucksRP/qb-inventory-reworked-images-in-menu/releases)
 
-## Preview
 
-![qb-inventory-punk preview](qb-inventory-punk.png)
+\---
 
-## Features
+## // 01 -- WHAT CHANGED
 
-- Holographic glass panels with hex grid background and color-zone glows
-- Dungeon art layers (zhead, zbody, zskelly) placed behind the menu
-- RealitySucks logo watermark inside the inventory panel
-- Segmented 12-piece weight bar
-- Barlow Condensed typography with dominant weight numbers
-- Corner-bracket item slots that lift on hover
-- Custom hotbar flush to the bottom of the player panel with active slot indicator
-- Cash-as-item support via AP rework backend
-- Optional HUD hide/show hook (works with rs-hudlifeV2 or any HUD that exposes a visibility export)
-- All original qb-inventory logic preserved: stashes, vehicle trunk/glovebox, weapon attachments, drops, shops, durability, item tooltips
-- Genuinely open source -- no escrow_ignore, no assetpacks dependency
+The entire CSS was replaced with an intentional design system:
 
-## Dependencies
+* Full dark background with subtle 40px grid lines and color zone glows (green player side, blue storage side)
+* Glass panel surfaces with top accent lines per inventory type
+* Item slots are flat dark with corner bracket accents that lift on hover
+* Segmented weight bar -- 12 individual segments instead of a plain fill bar
+* Barlow Condensed typography with dominant weight numbers and eyebrow tags
+* Context menu rebuilt with left border accent on hover, sharp and clean
+* Hotbar flush to the bottom of the player panel with active slot indicator line
+* Slot entry animation replaced with a clean scale-in
 
-- [qb-core](https://github.com/qbcore-framework/qb-core) (patched for AP rework if using cash-as-item)
-- [qb-weapons](https://github.com/qbcore-framework/qb-weapons)
-- [oxmysql](https://github.com/overextended/oxmysql)
+Nothing in `index.html`, `app.js`, or `js/app.js` was modified. Vue.js logic, drag and drop, tooltips, context menu behavior, weapon attachments -- all original.
 
-## Installation
+\---
 
-1. Download and extract into your `resources` folder
-2. **Rename the folder to `qb-inventory`** -- this is critical, server.cfg will not match otherwise
-3. Add `ensure qb-inventory` to your `server.cfg`
-4. Import `qb-inventory.sql` into your database (fresh install)
-5. Open `config/config.lua` and either configure your HUD export or set `Config.CustomHUD.Enabled = false`
-6. Restart your server
+## // 02 -- DEPENDENCIES
 
-## Configuration
+* [qb-core](https://github.com/qbcore-framework/qb-core)
+* [qb-smallresources](https://github.com/qbcore-framework/qb-smallresources) -- for transfer logging
 
-| Option                    | Default              | Description                                                                |
-| ---                       | ---                  | ---                                                                        |
-| `CashAsItem`              | `true`               | Cash treated as inventory item via AP rework. Requires patched qb-core.    |
-| `CustomHUD.Enabled`       | `true`               | Hide/show external HUD when inventory opens.                               |
-| `CustomHUD.ResourceName`  | `rs-hudlifeV2`       | Resource name of the HUD to hook.                                          |
-| `CustomHUD.ExportName`    | `SetHUDLifeVisible`  | Export function called on visibility change.                               |
-| `MaxWeight`               | `120000`             | Max player carry weight in grams (120 kg).                                 |
-| `MaxSlots`                | `40`                 | Max player inventory slots.                                                |
-| `StashSize.maxweight`     | `2000000`            | Max stash weight.                                                          |
-| `StashSize.slots`         | `100`                | Max stash slots.                                                           |
-| `DropSize.maxweight`      | `1000000`            | Max ground drop weight.                                                    |
-| `DropSize.slots`          | `50`                 | Max ground drop slots.                                                     |
-| `Keybinds.Open`           | `TAB`                | Open inventory keybind.                                                    |
-| `Keybinds.Hotbar`         | `Z`                  | Toggle hotbar keybind.                                                     |
-| `CleanupDropTime`         | `15`                 | Drop cleanup time (minutes).                                               |
-| `CleanupDropInterval`     | `1`                  | Drop cleanup check interval (minutes).                                     |
+\---
 
-## Cash As Item
+## // 03 -- FEATURES
 
-This package ships with cash-as-item enabled by default. The AP rework backend treats cash as a regular inventory item rather than account balance. This requires a patched `qb-core/player.lua` from the Anya-Project repository.
+All original qb-inventory features are preserved:
 
-To disable:
+* Stashes (personal and shared)
+* Vehicle trunk and glovebox
+* Weapon attachments
+* Shops with price display
+* Item drops
+* Drag and drop between inventories
+* Context menu -- use, give, drop, split, serial, attachments
+* Item durability bar per slot
+* Hotbar with keybind slots 1-5
+* Item tooltips with description and weight
 
-```lua
-Config.CashAsItem = false
+\---
+
+## // 04 -- INSTALLATION
+
+Drop the folder into your `\[qb]` resources directory and add to your `server.cfg`:
+
+```bash
+ensure qb-inventory
 ```
 
-## Custom HUD Integration
+Import `qb-inventory.sql` into your database if doing a fresh install.
 
-By default the inventory calls the `SetHUDLifeVisible` export on `rs-hudlifeV2` to hide and show your HUD when the menu opens. To use a different HUD, edit `config/config.lua`:
+\---
 
-```lua
-Config.CustomHUD = {
-    Enabled      = true,
-    ResourceName = 'your-hud-resource',
-    ExportName   = 'YourVisibilityExport'
-}
-```
-
-Or disable the hook entirely by setting `Enabled = false`.
-
-## Database
-
-Fresh install:
+## // 05 -- DATABASE (fresh install)
 
 ```sql
 CREATE TABLE IF NOT EXISTS `inventories` (
-  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `id` INT(11) NOT NULL AUTO\_INCREMENT,
   `identifier` VARCHAR(50) NOT NULL,
-  `items` LONGTEXT DEFAULT ('[]'),
+  `items` LONGTEXT DEFAULT ('\[]'),
   PRIMARY KEY (`identifier`),
   KEY `id` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB AUTO\_INCREMENT=1 DEFAULT CHARSET=utf8mb4;
 ```
 
-Migrating from old qb-inventory: import `qb-inventory.sql` to create the new `inventories` table, then run `migrate.sql` to move data from `stashitems`, `trunkitems`, and `gloveboxitems`. After complete, remove the old tables.
+\---
 
-## UI Tweaking
+## // 06 -- MIGRATING FROM OLD qb-inventory
 
-All easy CSS controls live at the bottom of `html/main.css`. See `RS_UI_QUICK_TWEAKS.txt` for the full reference. Quick summary:
+Upload the new `inventory.sql` file to create the new `inventories` table. Use the provided `migrate.sql` to move all saved inventory data from stashes, trunks, and gloveboxes. Once complete you can drop the `gloveboxitems`, `stashitems`, and `trunkitems` tables.
 
-**Glass transparency** -- `--rs-panel-glass`, `--rs-header-glass`, `--rs-slot-glass`, `--rs-logo-watermark-opacity`, `--rs-art-opacity`
+\---
 
-**Dungeon art positioning** -- `--rs-zhead-left/-top`, `--rs-zbody-right/-top`, `--rs-zskelly-right/-bottom`
+## // 07 -- CREDITS
 
-**Sizing** -- `--rs-item-icon-scale`, `--rs-item-slot-min-height`, `--rs-zhead-width`, `--rs-zbody-width`, `--rs-zskelly-width`
+Original resource by the QBCore Framework team -- [qbcore-framework/qb-inventory](https://github.com/qbcore-framework/qb-inventory)
 
-**Notifications** -- `--rs-notify-right`, `--rs-notify-top`, `--rs-notify-size`
+UI redesign by RealitySucks RP.
 
-## Version History
+\---
 
-- **v2.5.1** -- Open source release. Removed dead files, verified no escrow_ignore, no assetpacks dependency.
-- **v1.8** -- Enlarged and sharpened inventory text, slot numbers, weight readouts, and item icons.
-- **v1.7** -- Notification placement fixed to right-center, dungeon art enlarged, zskelly moved lower-left.
-- **v1.6** -- Stopped holographic background from leaking before character select and during gameplay.
-- **v1.5** -- True transparent glass panel so logo and art show through behind the menu.
-- **v1.3** -- Holographic cyberpunk skin applied to the live inventory.
-- **v1.2** -- Player inventory stretched 50% taller; added bottom-of-file CSS controls.
-- **v1.1** -- Dungeon UI patch: added rslogo, zhead, zbody, zskelly PNG art behind the menu.
+## // 08 -- LICENSE
 
-## Credits
+Original QBCore inventory is licensed under the GNU General Public License v3.
+Design by William Brito
 
-Original resource: [qbcore-framework/qb-inventory](https://github.com/qbcore-framework/qb-inventory) -- Copyright (C) 2021 Joshua Eger
+Credit and license.
 
-Backend foundation: [Anya-Project/qb-inventory-rework](https://github.com/Anya-Project/qb-inventory-rework) -- huge thanks for the rework patches that made cash-as-item and the polish layer possible.
+&#x20;   QBCore Framework
+    Copyright (C) 2021 Joshua Eger
 
-Build by **Kakarot** and **RealitySucks RP**.
-UI redesign and Dungeon theme by William Brito (RealitySucks RP).
 
-## License
 
-GPL-3.0 -- Free to use, modify, and redistribute with credit.
+HUGE THANK YOU TO ANYA-PROJECT. These are the patches I needed to make this work. 
 
----
 
-Made by [RealitySucksRP](https://github.com/RealitySucksRP) -- built for the community, not for profit.
 
----
+https://github.com/Anya-Project/qb-inventory-rework 
 
-## Support This Project
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
 
-<a href='https://ko-fi.com/R6R51XYJ6N' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi2.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU General Public License for more details.
 
-<script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
-<script>
-  kofiWidgetOverlay.draw('realitysucksrp', {
-    'type': 'floating-chat',
-    'floating-chat.donateButton.text': 'Support me',
-    'floating-chat.donateButton.background-color': '#fcbf47',
-    'floating-chat.donateButton.text-color': '#323842'
-  });
-</script>
+    You should have received a copy of the GNU General Public License
+    along with this program. If not, see <https://www.gnu.org/licenses/>
+
+
+\---
+
+\*RealitySucks RP --  PLEASE MAKE SURE TO NAME THIS FILE qb-inventory on your resources folder and server.cfg
+
+
+
+## RS DUNGEON UI Patch v1.1 --Dungeon is a nickname punk is the style. 
+
+* Added transparent PNG UI art files: `rslogo.png`, `zhead.png`, `zbody.png`, and `zskelly.png`.
+* Placed zhead, zbody, and zskelly behind the menu UI as decorative background layers.
+* Added rslogo as a watermark inside the inventory panel.
+* Kept the main inventory grid at 5 columns with slots 1-5 numbered.
+* Updated `fxmanifest.lua` so top-level UI PNG files load correctly and item images can remain in `html/images/`.
+
+## RS UI v1.2
+
+* Stretched the player inventory menu height about 50% taller without changing width or column count.
+* Added bottom-of-file easy CSS controls for menu height and decorative image movement.
+
+## RS UI Update - v1.3 - applied holographic cyberpunk/dungeon menu preview
+
+* Date: 2026-05-01
+* Added the latest preview styling to the live inventory menu.
+* Only visual menu CSS was changed: panels, borders, columns, slot glow, and hover styling.
+* Inventory logic, item image paths, drag/drop, and hotbar behavior were not changed.
+* Item icons still belong in `html/images/`.
+
+## RS UI Update
+
+* v1.5 - kept new holographic hex/server-tech skin and made the panel true transparent glass so the logo/art show behind the menu.
+
+
+
+## RS Dungeon UI v1.6
+
+* Fixed holographic transparent/grid background leaking before character select and staying visible during gameplay.
+* Disabled global `body::before`/`body::after` visual overlays so the game screen stays clean when inventory is closed.
+* Kept the holographic grid/glass style inside the actual inventory menu only.
+* Moved `zskelly` slightly down and left on the screen.
+* No inventory logic, item image paths, drag/drop, hotbar behavior, or server code changed.
+
+### v1.7 - Notification / art clarity patch
+
+* Fixed item notification placement to right-center, slightly higher.
+* Forced notification size/style to match the zombie build.
+* Enlarged dungeon background art and moved zskelly lower/left.
+* Kept the holographic grid inside the inventory only.
+
+### RS UI v1.8 - Text + Item Icon Clarity
+
+* Notification position/style left untouched.
+* Enlarged and sharpened inventory header text, weight text, slot numbers, amount text, and bottom hints.
+* Enlarged item icons inside the inventory squares.
+* Increased dungeon background art size/contrast so the images stand out more behind the glass UI.
+

@@ -2,16 +2,22 @@ Config = {
     -- AP/QB Inventory Rework option. Enabled because this package includes patched qb-core/player.lua + cash item.
     CashAsItem = true,
 
-    -- Optional HUD hide/show hook. Leave disabled unless this server uses rs-hudlifev2 with SetHUDLifeVisible export.
+    -- Optional HUD hide/show hook. Must name a resource that is actually installed
+    -- and started; ToggleHUD silently no-ops otherwise.
     CustomHUD = {
         Enabled = true,
-        ResourceName = 'rs-hudlifeV2',
+        ResourceName = 'rs-lilhudlife',
         ExportName = 'SetHUDLifeVisible'
     },
     UseTarget = GetConvar('UseTarget', 'false') == 'true',
 
     MaxWeight = 120000,
     MaxSlots = 40,
+
+    -- TRUE = non-unique items always stack by name, even when their freshness/expiry
+    -- differs. Merged stacks keep the EARLIER expiry so stacking never extends item life.
+    -- FALSE = old behavior: stacks only combine when expiry dates match exactly.
+    StackWithDifferentExpiry = true,
 
     StashSize = {
         maxweight = 2000000,

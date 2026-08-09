@@ -1,0 +1,42 @@
+RealitySucksRP qb-inventory v2.6.1 Drop/Inventory Sync Patch
+================================================================
+
+THIS IS A CHANGED-FILES-ONLY PATCH.
+Merge the included qb-inventory folder into your existing qb-inventory resource.
+Do not delete your full resource and replace it with only this patch folder.
+
+Changed files
+-------------
+fxmanifest.lua
+server/main.lua
+server/functions.lua
+server/commands.lua
+client/main.lua
+client/drops.lua
+html/app.js
+CHANGELOG_RS_PUNK_v2.6.1.md
+
+Installation
+------------
+1. Stop the FiveM server.
+2. Back up the current qb-inventory resource.
+3. Open the patch's qb-inventory folder.
+4. Copy its contents into your existing qb-inventory folder and allow the seven
+   changed code files to overwrite their matching files.
+5. Keep the resource folder name exactly: qb-inventory
+6. Start the server and reconnect the test player.
+
+Recommended runtime test
+------------------------
+1. Record the exact amounts of cash, black money, a normal stackable item, a
+   unique item, and a weapon.
+2. Drop one item, half a stack, and a full stack.
+3. Confirm the player panel decreases once and the Drop panel shows the exact
+   dropped amount.
+4. Immediately drag/merge items between the two panels. A removed source item
+   must not reappear and cannot be merged as a ghost.
+5. Pick everything back up, close inventory, reopen it, and confirm the totals
+   match the starting totals exactly.
+6. Repeat with two real clients and confirm both see the same floor bag contents.
+
+No SQL import is required.

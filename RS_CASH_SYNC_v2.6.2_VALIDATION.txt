@@ -1,0 +1,13 @@
+Punk UI 2.6.2-rs-punk-cash-sync STATIC VALIDATION
+
+PASS: manifest version updated
+PASS: server/cash_sync.lua loaded after server/functions.lua
+PASS: player-load migration preserves account-only cash by creating a physical item
+PASS: normal QBCore money events reconcile account -> item
+PASS: inventory cash changes reconcile item -> QBCore buying power without SetMoney recursion
+PASS: failed item creation/removal rolls account back to actual item total
+PASS: client inventory and HUD cash update events are emitted
+PASS: v2.6.1 drop-sync files are retained as the source baseline
+PASS: no SQL/config/CSS/image/item-definition changes included
+
+LIVE FIVEM TEST REQUIRED.

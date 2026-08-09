@@ -128,37 +128,46 @@ exports('SaveInventory', SaveInventory)
 
 function AddCash(source, amount, reason)
     if not source or not amount then return false end
+    amount = tonumber(amount)
+    if not amount or amount <= 0 then return false end
+
     local PlayerObject = QBCore.Functions.GetPlayer(source)
     if not PlayerObject then return false end
     reason = reason or 'unknown'
 
     if Config.CashAsItem then
-        if AddItem(source, 'cash', amount, nil, {}, 'money_as_item:add (' .. reason .. ')') then
-            return true
+        if not QBCore.Shared.Items['cash'] then
+            print('[qb-inventory] CashAsItem is true, but qb-core/shared/items.lua is missing item: cash')
+            return false
         end
-        return false
-    else
-        return PlayerObject.Functions.AddMoney('cash', amount, reason)
+        return AddItem(source, 'cash', amount, nil, {}, 'money_as_item:add (' .. reason .. ')')
     end
+
+    return PlayerObject.Functions.AddMoney('cash', amount, reason)
 end
 exports('AddCash', AddCash)
 
 function RemoveCash(source, amount, reason)
     if not source or not amount then return false end
+    amount = tonumber(amount)
+    if not amount or amount <= 0 then return false end
+
     local PlayerObject = QBCore.Functions.GetPlayer(source)
     if not PlayerObject then return false end
     reason = reason or 'unknown'
 
     if Config.CashAsItem then
+        if not QBCore.Shared.Items['cash'] then
+            print('[qb-inventory] CashAsItem is true, but qb-core/shared/items.lua is missing item: cash')
+            return false
+        end
         if HasItem(source, 'cash', amount) then
-            if RemoveItem(source, 'cash', amount, nil, 'money_as_item:remove (' .. reason .. ')') then
-                return true
-            end
+            return RemoveItem(source, 'cash', amount, nil, 'money_as_item:remove (' .. reason .. ')')
         end
         return false
-    else
-        return PlayerObject.Functions.RemoveMoney('cash', amount, reason)
     end
+
+    return PlayerObject.Functions.RemoveMoney('cash', amount, reason)
 end
 exports('RemoveCash', RemoveCash)
 
@@ -172,6 +181,10 @@ function SetInventory(identifier, items, reason)
     if player then
         player.Functions.SetPlayerData('items', items)
         ScheduleSave(identifier)
+        if Config.CashAsItem and RSInventorySetCashAccountFromItem then
+            RSInventorySetCashAccountFromItem(identifier, GetItemCount(identifier, 'cash') or 0,
+                                              'set-inventory')
+        end
         if not player.Offline then
             local logMessage = string.format('**%s (citizenid: %s | id: %s)** items set: %s', GetPlayerName(identifier), player.PlayerData.citizenid, identifier, json.encode(items))
             TriggerEvent('qb-log:server:CreateLog', 'playerinventory', 'SetInventory', 'blue', logMessage)
@@ -428,7 +441,7 @@ function ClearInventory(source, filterItems)
             end
         end
         if Player(source).state.inv_busy then
-            TriggerClientEvent('qb-inventory:client:updateInventory', source)
+            TriggerClientEvent('qb-inventory:client:updateInventory', source, player.PlayerData.items)
         end
     end
 end
@@ -660,13 +673,14 @@ function AddItem(identifier, item, amount, slot, info, reason)
     local updated = false
 
     if not itemInfo.unique then
+        local allowExpiryMerge = Config.StackWithDifferentExpiry ~= false
         local targetSlot = slot
         if not targetSlot then
             for k, v in pairs(inventory) do
                 if v.name == item then
                     local canStack = true
-                    if v.info and v.info.expiryDate then
-                        if not info or not info.expiryDate or info.expiryDate ~= v.info.expiryDate then
+                    if not allowExpiryMerge and type(v.info) == 'table' and v.info.expiryDate then
+                        if type(info) ~= 'table' or not info.expiryDate or info.expiryDate ~= v.info.expiryDate then
                             canStack = false
                         end
                     end
@@ -679,7 +693,20 @@ function AddItem(identifier, item, amount, slot, info, reason)
         end
 
         if targetSlot and inventory[targetSlot] and inventory[targetSlot].name == item then
-            inventory[targetSlot].amount = inventory[targetSlot].amount + amount
+            local stackItem = inventory[targetSlot]
+            stackItem.amount = stackItem.amount + amount
+
+            -- Merged stacks keep the earlier expiry so stacking never extends item life.
+            local incomingExpiry = type(info) == 'table' and info.expiryDate or nil
+            if incomingExpiry then
+                if type(stackItem.info) ~= 'table' then stackItem.info = {} end
+                local currentExpiry = stackItem.info.expiryDate
+                stackItem.info.expiryDate = (currentExpiry and math.min(currentExpiry, incomingExpiry)) or incomingExpiry
+                if not stackItem.info.creationDate and type(info) == 'table' and info.creationDate then
+                    stackItem.info.creationDate = info.creationDate
+                end
+            end
+
             updated = true
             slot = targetSlot
         end
@@ -691,7 +718,8 @@ function AddItem(identifier, item, amount, slot, info, reason)
             return false
         end
 
-        local newItemInfo = info or {}
+        -- info can arrive as '' or json strings from legacy saves; only tables are usable.
+        local newItemInfo = type(info) == 'table' and info or {}
         local currentTime = os.time()
 
         if itemInfo.decayrate and not newItemInfo.expiryDate then
@@ -730,10 +758,15 @@ function AddItem(identifier, item, amount, slot, info, reason)
         player.Functions.SetPlayerData('items', inventory)
         ScheduleSave(identifier)
         if item == 'cash' and Config.CashAsItem then
-            player.Functions.SetMoney('cash', GetItemCount(identifier, 'cash') or 0)
+            local cashTotal = GetItemCount(identifier, 'cash') or 0
+            if RSInventorySetCashAccountFromItem then
+                RSInventorySetCashAccountFromItem(identifier, cashTotal, 'cash-item-added')
+            else
+                player.Functions.SetMoney('cash', cashTotal, 'cash-item-added-fallback')
+            end
         end
         TriggerClientEvent('qb-inventory:client:ItemBox', identifier, itemInfo, 'add', amount)
-        TriggerClientEvent('qb-inventory:client:updateInventory', identifier)
+        TriggerClientEvent('qb-inventory:client:updateInventory', identifier, player.PlayerData.items)
     elseif inventoryType == 'stash' then
         Inventories[identifier].items = inventory
     elseif inventoryType == 'drop' then
@@ -845,10 +878,15 @@ function RemoveItem(identifier, item, amount, slot, reason)
         player.Functions.SetPlayerData('items', inventory)
         ScheduleSave(identifier)
         if itemName == 'cash' and Config.CashAsItem then
-            player.Functions.SetMoney('cash', GetItemCount(identifier, 'cash') or 0)
+            local cashTotal = GetItemCount(identifier, 'cash') or 0
+            if RSInventorySetCashAccountFromItem then
+                RSInventorySetCashAccountFromItem(identifier, cashTotal, 'cash-item-removed')
+            else
+                player.Functions.SetMoney('cash', cashTotal, 'cash-item-removed-fallback')
+            end
         end
         TriggerClientEvent('qb-inventory:client:ItemBox', identifier, itemInfo, 'remove', amount)
-        TriggerClientEvent('qb-inventory:client:updateInventory', identifier)
+        TriggerClientEvent('qb-inventory:client:updateInventory', identifier, player.PlayerData.items)
     elseif inventoryType == 'stash' then
         Inventories[identifier].items = inventory
     elseif inventoryType == 'drop' then

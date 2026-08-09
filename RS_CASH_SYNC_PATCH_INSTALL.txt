@@ -1,0 +1,25 @@
+QB-INVENTORY PUNK UI — v2.6.3-rs-punk-cash-authority
+CHANGED-FILES-ONLY / CUMULATIVE PATCH
+
+1. STOP the complete FiveM server.
+2. Back up the active full `qb-inventory` resource.
+3. This patch belongs ONLY to the Punk UI resource originally reviewed as qb-inventory(4).zip.
+4. Copy the included `qb-inventory` folder CONTENTS over the matching full resource and overwrite changed files.
+5. Do NOT replace the full resource with only this patch folder.
+6. Keep the live resource folder name exactly `qb-inventory`.
+7. No SQL import is required.
+8. Full server restart; reconnect the test player.
+
+FIRST TEST
+- Run /cashcheck before changing money.
+- Give yourself $5,000 with the normal QBCore/admin money command.
+- Verify the inventory cash card shows `$5,000` (not x5000).
+- Verify /cashcheck reports MATCH.
+- Spend $1,000 and verify item/HUD/QBCore buying power all become $4,000.
+- Drop and pick up part of the cash; /cashcheck must remain MATCH.
+
+ABOUT THE qb-core server/events.lua:137 WARNING
+v2.6.3 no longer manually re-fires QBCore:Server:OnMoneyChange from the item->account bridge.
+This removes one path that can expose older/custom qb-core handlers that use the event-global `source` incorrectly.
+If that exact qb-core warning still appears after this patch, do not guess-edit qb-core. Supply the active
+qb-core/server/events.lua and qb-core/server/player.lua (or the full qb-core resource) so line 137 can be fixed against the actual build.
