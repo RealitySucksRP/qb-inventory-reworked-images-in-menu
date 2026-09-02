@@ -7,6 +7,7 @@
     <img src="https://img.shields.io/badge/Support%20me%20on%20Ko--fi-72A4F2?logo=ko-fi&logoColor=white" alt="Support me on Ko-fi">
   </a>
 </p>
+CHECK OUT MY TEBEX STORE: https://reality-sucks-rp-webstore.tebex.io/
 
 # ⚡ RealitySucksRP qb-inventory — Custom UI Edition ⚡
 
