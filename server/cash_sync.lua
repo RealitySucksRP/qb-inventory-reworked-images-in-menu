@@ -216,6 +216,30 @@ function RSInventorySyncCashFromAccount(source, reason)
     if cashSyncBusy[source] then return true end
     if not CashItemExists() then return false end
 
+    -- Defer while the player has a live inventory move (SetInventoryData) or
+    -- drop-creation in flight -- see RSInventoryBusy in server/main.lua. This
+    -- function's only write path (SetPhysicalCashTotal, below) overwrites
+    -- Player.PlayerData.items directly, bypassing AddItem/RemoveItem and
+    -- whatever those functions guard. Nothing stopped it from running in the
+    -- middle of a drag-and-drop: a money-change event completely unrelated to
+    -- what the player is doing (a paycheck, a sale, anything, on its own
+    -- timer) can trigger this via QBCore:Server:OnMoneyChange, deferred one
+    -- tick by SetTimeout(0). If that lands mid-move, whichever write commits
+    -- last silently clobbers the other -- the mechanism behind an
+    -- intermittent cash-item duplication (or loss) from repeated drop/pickup.
+    --
+    -- Retry rather than skip: the mismatch this call exists to fix is real
+    -- and still needs correcting once the player's own move finishes. Each
+    -- retry re-reads the account fresh, so a busy wait never uses stale data.
+    if RSInventoryBusy and RSInventoryBusy[source] then
+        SetTimeout(200, function()
+            if QBCore.Functions.GetPlayer(source) then
+                RSInventorySyncCashFromAccount(source, reason)
+            end
+        end)
+        return true
+    end
+
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
 

@@ -22,6 +22,14 @@ QBCore = exports['qb-core']:GetCoreObject()
 -- broken legacy resource is being tracked down and corrected.
 local ALLOW_LEGACY_CLIENT_ITEM_EVENTS = false
 
+-- Same reasoning for `inventory:server:OpenInventory`. A client-originated call
+-- picks the inventory name, the slot count and the max weight, so leaving this
+-- open let any player open any stash, register a shop with their own prices, or
+-- open another player's inventory outright. Server-side callers are unaffected.
+-- 'otherplayer' is never honoured from a client even when this is true: the
+-- robbery flow is the only legitimate way to reach another player's inventory.
+local ALLOW_LEGACY_CLIENT_OPEN_EVENTS = false
+
 local function ResolvePlayerName(src)
     if not src or src == 0 then return 'unknown' end
 
@@ -94,9 +102,31 @@ local function HandleLegacyItemEvent(action, src, item, amount, slot, info)
     end
 end
 
+local function LogLegacyOpenAttempt(src, name, detail)
+    local line = ('[qb-inventory] BLOCKED legacy client open event: source=%s (%s) | name=%s | detail=%s')
+        :format(tostring(src), ResolvePlayerName(src), tostring(name), tostring(detail))
+
+    print('^1' .. line .. '^7')
+    TriggerEvent('qb-log:server:CreateLog', 'anticheat', 'Legacy open event', 'red', line, false)
+end
+
 RegisterNetEvent('inventory:server:OpenInventory', function(name, data_or_targetid, slots)
     local src = source
     if not name then return end
+
+    local fromServer = GetInvokingResource() ~= nil
+
+    if not fromServer then
+        if name == 'otherplayer' or name == 'player' then
+            LogLegacyOpenAttempt(src, name, 'open-other-player')
+            return
+        end
+
+        if not ALLOW_LEGACY_CLIENT_OPEN_EVENTS then
+            LogLegacyOpenAttempt(src, name, 'client-originated')
+            return
+        end
+    end
 
     if name == 'shop' then
         local shopIdentifier = tostring(data_or_targetid)
@@ -149,8 +179,8 @@ QBCore.Functions.CreateCallback('QBCore:Server:HasItem', function(source, cb, it
     cb(hasItem)
 end)
 
-if ALLOW_LEGACY_CLIENT_ITEM_EVENTS then
-    print('^1QB-Inventory: Legacy Compatibility Bridge loaded (client item events ALLOWED - INSECURE).^0')
+if ALLOW_LEGACY_CLIENT_ITEM_EVENTS or ALLOW_LEGACY_CLIENT_OPEN_EVENTS then
+    print('^1QB-Inventory: Legacy Compatibility Bridge loaded (client events ALLOWED - INSECURE).^0')
 else
-    print('^2QB-Inventory: ^7Legacy Compatibility Bridge loaded (client item events blocked).^0')
+    print('^2QB-Inventory: ^7Legacy Compatibility Bridge loaded (client events blocked).^0')
 end

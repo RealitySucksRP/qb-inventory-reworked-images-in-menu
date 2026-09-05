@@ -37,7 +37,7 @@ QBCore.Commands.Add('giveitem', 'Give An Item (Admin Only)', { { name = 'id', he
             elseif itemData['name'] == 'markedbills' then
                 info.worth = math.random(5000, 10000)
             elseif itemData['name'] == 'printerdocument' then
-                info.url = 'https://cdn.discordapp.com/attachments/870094209783308299/870104331142189126/Logo_-_Display_Picture_-_Stylized_-_Red.png'
+                info.url = Config.DefaultPrinterDocumentUrl or ''
             end
 
             if AddItem(id, itemData['name'], amount, false, info, 'give item command') then
@@ -122,13 +122,63 @@ RegisterCommand('hotbar', function(source)
     TriggerClientEvent('qb-inventory:client:hotbar', source, hotbarItems)
 end, false)
 
+-- The client used to hand back a bare 'trunk-<plate>' / 'glovebox-<plate>'
+-- string and the server opened whatever it was given, so a spoofed callback
+-- opened any vehicle on the map from anywhere. The client now also reports the
+-- vehicle's network id, and the server resolves that entity itself and checks
+-- it is a real vehicle, that the plate matches the name it was handed, and that
+-- the player is actually at it.
+--
+-- Residual: `class` and `model` are still client-reported and only select slot
+-- and weight limits from config/vehicles.lua. They cannot be used to reach a
+-- different vehicle, only to overstate one's capacity.
+local function VerifyVehicleInventory(src, inventory, netId)
+    if type(inventory) ~= 'string' then return false end
+
+    local prefix = inventory:match('^(trunk)%-') or inventory:match('^(glovebox)%-')
+    if not prefix then return false end
+
+    netId = tonumber(netId)
+    if not netId then return false end
+
+    local vehicle = NetworkGetEntityFromNetworkId(netId)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return false end
+    if GetEntityType(vehicle) ~= 2 then return false end
+
+    -- Plate check where the server build exposes it. Compared trimmed so the
+    -- existing stash identifiers keep resolving unchanged.
+    local okPlate, plate = pcall(GetVehicleNumberPlateText, vehicle)
+    if okPlate and type(plate) == 'string' and plate ~= '' then
+        local claimed = (inventory:gsub('^' .. prefix .. '%-', '')):gsub('%s+$', '')
+        if claimed ~= (plate:gsub('%s+$', '')) then return false end
+    end
+
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return false end
+
+    if prefix == 'glovebox' then
+        -- A glovebox is only reachable from inside the vehicle.
+        local okIn, pedVehicle = pcall(GetVehiclePedIsIn, ped)
+        if okIn and pedVehicle and pedVehicle ~= 0 then
+            return pedVehicle == vehicle
+        end
+    end
+
+    return #(GetEntityCoords(ped) - GetEntityCoords(vehicle)) <= 5.0
+end
+
 RegisterCommand('inventory', function(source)
     if Player(source).state.inv_busy then return end
     local QBPlayer = QBCore.Functions.GetPlayer(source)
     if not QBPlayer then return end
     if not QBPlayer or QBPlayer.PlayerData.metadata['isdead'] or QBPlayer.PlayerData.metadata['inlaststand'] or QBPlayer.PlayerData.metadata['ishandcuffed'] then return end
-    QBCore.Functions.TriggerClientCallback('qb-inventory:client:vehicleCheck', source, function(inventory, class, model)
+    QBCore.Functions.TriggerClientCallback('qb-inventory:client:vehicleCheck', source, function(inventory, class, model, netId)
         if not inventory then return OpenInventory(source) end
+
+        if not VerifyVehicleInventory(source, inventory, netId) then
+            LogInventoryAccessDenied(source, inventory, 'vehicle-verify-failed')
+            return
+        end
 
         if inventory:find('trunk-') then
             local slots = (VehicleStorage.byModel[model] and VehicleStorage.byModel[model].trunkSlots) or

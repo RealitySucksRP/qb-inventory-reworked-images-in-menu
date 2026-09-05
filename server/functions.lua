@@ -13,7 +13,7 @@ local function InitializeInventory(inventoryId, data)
     return Inventories[inventoryId]
 end
 
-local function GetFirstFreeSlot(items, maxSlots)
+function GetFirstFreeSlot(items, maxSlots)
     for i = 1, maxSlots do
         if items[i] == nil then
             return i
@@ -94,7 +94,9 @@ end
 exports('LoadInventory', LoadInventory)
 
 function SaveInventory(source, offline)
-    print(('[qb-inventory] Save Inventory data for: %s (%s)'):format(GetPlayerName(source), source))
+    if Config.Debug then
+        print(('[qb-inventory] Save Inventory data for: %s (%s)'):format(GetPlayerName(source), source))
+    end
     local PlayerData
     if offline then
         PlayerData = source
@@ -140,6 +142,7 @@ function AddCash(source, amount, reason)
             print('[qb-inventory] CashAsItem is true, but qb-core/shared/items.lua is missing item: cash')
             return false
         end
+
         return AddItem(source, 'cash', amount, nil, {}, 'money_as_item:add (' .. reason .. ')')
     end
 
@@ -161,9 +164,11 @@ function RemoveCash(source, amount, reason)
             print('[qb-inventory] CashAsItem is true, but qb-core/shared/items.lua is missing item: cash')
             return false
         end
+
         if HasItem(source, 'cash', amount) then
             return RemoveItem(source, 'cash', amount, nil, 'money_as_item:remove (' .. reason .. ')')
         end
+
         return false
     end
 
@@ -345,8 +350,13 @@ end
 exports('GetItemCount', GetItemCount)
 
 function CanAddItem(identifier, item, amount)
+    if type(item) ~= 'string' or item == '' then return false end
+    amount = tonumber(amount)
+    if not amount or amount ~= math.floor(amount) or amount <= 0 then return false end
+    item = item:lower()
+
     local Player = QBCore.Functions.GetPlayer(identifier)
-    local itemData = QBCore.Shared.Items[item:lower()]
+    local itemData = QBCore.Shared.Items[item]
     if not itemData then return false end
 
     local inventory, items
@@ -484,31 +494,62 @@ end
 exports('HasItem', HasItem)
 
 function CloseInventory(source, identifier)
-    if identifier and Inventories[identifier] then
-        Inventories[identifier].isOpen = false
+    source = tonumber(source)
+    if not source then return end
+
+    local session = GetInventorySession(source)
+    if not identifier and session then identifier = session.name end
+
+    if type(identifier) == 'string' then
+        local targetId = tonumber(identifier:match('^otherplayer%-(.+)'))
+        if targetId and QBCore.Functions.GetPlayer(targetId) then
+            Player(targetId).state.inv_busy = false
+        elseif Drops[identifier] then
+            if Drops[identifier].isOpen == source then
+                Drops[identifier].isOpen = false
+            end
+        elseif Inventories[identifier] and Inventories[identifier].isOpen == source then
+            Inventories[identifier].isOpen = false
+        end
     end
-    Player(source).state.inv_busy = false
+
+    ClearInventorySession(source)
+    if QBCore.Functions.GetPlayer(source) then
+        Player(source).state.inv_busy = false
+    end
     TriggerClientEvent('qb-inventory:client:closeInv', source)
 end
 exports('CloseInventory', CloseInventory)
 
 function OpenInventoryById(source, targetId)
+    source = tonumber(source)
+    targetId = tonumber(targetId)
+    if not source or not targetId or source == targetId then return false end
+
     local QBPlayer = QBCore.Functions.GetPlayer(source)
-    local TargetPlayer = QBCore.Functions.GetPlayer(tonumber(targetId))
-    if not QBPlayer or not TargetPlayer then return end
-    if Player(targetId).state.inv_busy then CloseInventory(targetId) end
-    local playerItems = QBPlayer.PlayerData.items
-    local targetItems = TargetPlayer.PlayerData.items
+    local TargetPlayer = QBCore.Functions.GetPlayer(targetId)
+    if not QBPlayer or not TargetPlayer then return false end
+    if Player(source).state.inv_busy or Player(targetId).state.inv_busy then
+        return false
+    end
+
+    -- Lock both participants before exposing the target inventory. This closes
+    -- the two-robber race where multiple callers could pass the busy check
+    -- during the old 1.5 second wait.
+    Player(source).state.inv_busy = true
+    Player(targetId).state.inv_busy = true
+    SetInventorySession(source, 'otherplayer-' .. targetId, 'player')
+
     local formattedInventory = {
         name = 'otherplayer-' .. targetId,
         label = GetPlayerName(targetId),
         maxweight = Config.MaxWeight,
         slots = Config.MaxSlots,
-        inventory = targetItems
+        inventory = TargetPlayer.PlayerData.items
     }
-    Wait(1500)
-    Player(targetId).state.inv_busy = true
-    TriggerClientEvent('qb-inventory:client:openInventory', source, playerItems, formattedInventory)
+    TriggerClientEvent('qb-inventory:client:openInventory', source,
+                       QBPlayer.PlayerData.items, formattedInventory)
+    return true
 end
 exports('OpenInventoryById', OpenInventoryById)
 
@@ -554,7 +595,7 @@ exports('CreateShop', CreateShop)
 function OpenShop(source, name)
     if not name then return end
     local Player = QBCore.Functions.GetPlayer(source)
-    if not Player then return end
+    if not Player or Player(source).state.inv_busy then return end
     if not RegisteredShops[name] then return end
     local playerPed = GetPlayerPed(source)
     local playerCoords = GetEntityCoords(playerPed)
@@ -571,6 +612,8 @@ function OpenShop(source, name)
         slots = #RegisteredShops[name].items,
         inventory = RegisteredShops[name].items
     }
+    Player(source).state.inv_busy = true
+    SetInventorySession(source, 'shop-' .. RegisteredShops[name].name, 'shop')
     TriggerClientEvent('qb-inventory:client:sendServerTime', source, os.time())
     TriggerClientEvent('qb-inventory:client:openInventory', source, Player.PlayerData.items, formattedInventory)
 end
@@ -581,6 +624,7 @@ function OpenInventory(source, identifier, data)
     local QBPlayer = QBCore.Functions.GetPlayer(source)
     if not QBPlayer then return end
     if not identifier then
+        ClearInventorySession(source)
         Player(source).state.inv_busy = true
         TriggerClientEvent('qb-inventory:client:openInventory', source, QBPlayer.PlayerData.items)
         return
@@ -612,8 +656,10 @@ function OpenInventory(source, identifier, data)
     inventory.slots = (data and data.slots) or (inventory and inventory.slots) or Config.StashSize.slots
     inventory.label = (data and data.label) or (inventory and inventory.label) or identifier
     inventory.isOpen = source
+    Player(source).state.inv_busy = true
 
     local formattedInventory = { name = identifier, label = inventory.label, maxweight = inventory.maxweight, slots = inventory.slots, inventory = inventory.items }
+    SetInventorySession(source, identifier, 'stash')
     TriggerClientEvent('qb-inventory:client:sendServerTime', source, os.time())
     TriggerClientEvent('qb-inventory:client:openInventory', source, QBPlayer.PlayerData.items, formattedInventory)
 end
@@ -639,8 +685,29 @@ end
 exports('RemoveInventory', RemoveInventory)
 
 function AddItem(identifier, item, amount, slot, info, reason)
-    amount = tonumber(amount) or 1
-    local itemInfo = QBCore.Shared.Items[item:lower()]
+    if type(item) ~= 'string' or item == '' then
+        print('AddItem: Refused invalid item name "' .. tostring(item) .. '"')
+        return false
+    end
+    item = item:lower()
+
+    amount = amount == nil and 1 or tonumber(amount)
+    if not amount or amount ~= math.floor(amount) or amount <= 0 then
+        print('AddItem: Refused invalid amount for "' .. tostring(item) .. '"')
+        return false
+    end
+
+    if slot ~= nil and slot ~= false then
+        slot = tonumber(slot)
+        if not slot or slot ~= math.floor(slot) or slot < 1 then
+            print('AddItem: Refused invalid slot for "' .. tostring(item) .. '"')
+            return false
+        end
+    else
+        slot = nil
+    end
+
+    local itemInfo = QBCore.Shared.Items[item]
     if not itemInfo then
         print('AddItem: Invalid item "' .. tostring(item) .. '"')
         return false
@@ -666,7 +733,17 @@ function AddItem(identifier, item, amount, slot, info, reason)
         return false
     end
 
+    if slot and slot > inventorySlots then
+        return false
+    end
+
     if GetTotalWeight(inventory) + (itemInfo.weight * amount) > inventoryWeight then
+        return false
+    end
+
+    if slot and inventory[slot] and
+        (itemInfo.unique or inventory[slot].name ~= item) then
+        -- Explicit slots are authoritative; never overwrite an occupied slot.
         return false
     end
 
@@ -783,34 +860,58 @@ end
 exports('AddItem', AddItem)
 
 function RemoveItem(identifier, item, amount, slot, reason)
+    if type(item) ~= 'string' or item == '' then
+        return false
+    end
+    item = item:lower()
+
     -- ==================== REMOVEITEM DEBUG START ====================
     --print('--- REMOVEITEM DEBUG: Function Called ---')
     --print(('Attempting to remove %s of "%s" from inventory [%s], slot [%s]'):format(tostring(amount), tostring(item), tostring(identifier), tostring(slot)))
     -- ================================================================
 
     local player = QBCore.Functions.GetPlayer(identifier)
-    local inventory, inventoryType
+    local inventory, inventoryType, inventorySlots
 
     if player then
-        inventory, inventoryType = player.PlayerData.items, 'player'
+        inventory, inventoryType, inventorySlots = player.PlayerData.items, 'player', Config.MaxSlots
     elseif Inventories[identifier] then
         inventory, inventoryType = Inventories[identifier].items, 'stash'
+        inventorySlots = Inventories[identifier].slots or Config.StashSize.slots
     elseif Drops[identifier] then
         inventory, inventoryType = Drops[identifier].items, 'drop'
+        inventorySlots = Drops[identifier].slots or Config.DropSize.slots
     else
-        print('REMOVEITEM DEBUG: FAILED - Inventory not found for ' .. tostring(identifier))
+        if Config.Debug then
+            print('REMOVEITEM DEBUG: FAILED - Inventory not found for ' .. tostring(identifier))
+        end
         return false
     end
 
     amount = tonumber(amount)
-    if not amount or amount <= 0 then
-        print('REMOVEITEM DEBUG: FAILED - Invalid amount: ' .. tostring(amount))
+    if not amount or amount ~= math.floor(amount) or amount <= 0 then
+        if Config.Debug then
+            print('REMOVEITEM DEBUG: FAILED - Invalid amount: ' .. tostring(amount))
+        end
         return false
     end
-    local itemName = item:lower()
+
+    if slot ~= nil and slot ~= false then
+        slot = tonumber(slot)
+        if not slot or slot ~= math.floor(slot) or slot < 1 or
+            slot > inventorySlots then
+            return false
+        end
+    else
+        slot = nil
+    end
+
+    local itemName = item
     local itemInfo = QBCore.Shared.Items[itemName]
     if not itemInfo then
-        print('REMOVEITEM DEBUG: FAILED - Item info not found for ' .. itemName)
+        if Config.Debug then
+            print('REMOVEITEM DEBUG: FAILED - Item info not found for ' .. itemName)
+        end
         return false
     end
     local currentAmount = 0
@@ -820,7 +921,9 @@ function RemoveItem(identifier, item, amount, slot, reason)
         end
     end
     if currentAmount < amount then
-        print(('REMOVEITEM DEBUG: FAILED - Not enough total items. Have: %s, Need: %s'):format(currentAmount, amount))
+        if Config.Debug then
+            print(('REMOVEITEM DEBUG: FAILED - Not enough total items. Have: %s, Need: %s'):format(currentAmount, amount))
+        end
         return false
     end
 
@@ -830,17 +933,23 @@ function RemoveItem(identifier, item, amount, slot, reason)
         local itemInSlot = inventory[slot]
 
         if not itemInSlot then
-            print('REMOVEITEM DEBUG: FAILED - No item found in slot ' .. slot)
+            if Config.Debug then
+                print('REMOVEITEM DEBUG: FAILED - No item found in slot ' .. slot)
+            end
             return false
         end
 
         if itemInSlot.name ~= itemName then
-            print(('REMOVEITEM DEBUG: FAILED - Item name mismatch. Expected: "%s", Found: "%s"'):format(itemName, itemInSlot.name))
+            if Config.Debug then
+                print(('REMOVEITEM DEBUG: FAILED - Item name mismatch. Expected: "%s", Found: "%s"'):format(itemName, itemInSlot.name))
+            end
             return false
         end
         
         if itemInSlot.amount < amountToRemove then
-            print(('REMOVEITEM DEBUG: FAILED - Not enough amount in slot. Have: %s, Need: %s'):format(itemInSlot.amount, amountToRemove))
+            if Config.Debug then
+                print(('REMOVEITEM DEBUG: FAILED - Not enough amount in slot. Have: %s, Need: %s'):format(itemInSlot.amount, amountToRemove))
+            end
             return false
         end
 
@@ -870,7 +979,9 @@ function RemoveItem(identifier, item, amount, slot, reason)
     end
 
     if amountToRemove > 0 then
-        print('REMOVEITEM DEBUG: FAILED - Could not remove the full amount required.')
+        if Config.Debug then
+            print('REMOVEITEM DEBUG: FAILED - Could not remove the full amount required.')
+        end
         return false
     end
     

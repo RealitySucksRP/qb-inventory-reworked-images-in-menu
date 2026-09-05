@@ -25,6 +25,7 @@ local SLOT_USE_DEBOUNCE_MS = 450
 local pendingInventoryOperations = {}
 local inventoryOperationCounter = 0
 
+
 local function RequestAuthoritativeCashState()
     if Config.CashAsItem then
         TriggerServerEvent('qb-inventory:server:requestCashState')
@@ -69,22 +70,6 @@ end)
 
 RegisterNetEvent('QBCore:Client:UpdateObject', function()
     QBCore = exports['qb-core']:GetCoreObject()
-
-if not Lang then
-    Lang = {
-        t = function(_, key)
-            local fallback = {
-                ['notify.nonb'] = 'No one nearby.',
-                ['menu.vending'] = 'Vending Machine',
-                ['inf_mapping.use_item'] = 'Use item slot ',
-                ['inf_mapping.opn_inv'] = 'Open Inventory',
-                ['inf_mapping.tog_slots'] = 'Toggle Hotbar',
-            }
-
-            return fallback[key] or key
-        end
-    }
-end
 end)
 
 RegisterNetEvent('QBCore:Player:SetPlayerData', function(val)
@@ -502,6 +487,7 @@ local function PushAuthoritativeInventory(items)
     PlayerData.items = items
 
 
+
     SendNUIMessage({
         action = 'update',
         inventory = items
@@ -544,13 +530,6 @@ RegisterNetEvent('qb-inventory:client:ItemBox', function(itemData, type, amount)
     })
 end)
 
-RegisterNetEvent('qb-inventory:server:RobPlayer', function(TargetId)
-    SendNUIMessage({
-        action = 'RobMoney',
-        TargetId = TargetId,
-    })
-end)
-
 RegisterNetEvent('qb-inventory:client:openInventory', function(items, other)
     ToggleHUD(false)
     SetNuiFocus(true, true)
@@ -587,15 +566,18 @@ RegisterNUICallback('CloseInventory', function(data, cb)
     SetNuiFocus(false, false)
     TriggerScreenblurFadeOut(250)
 
-    if data.name then
-        if data.name:find('trunk-') then
-            CloseTrunk()
-        end
-        TriggerServerEvent('qb-inventory:server:closeInventory', data.name)
-    elseif CurrentDrop then
-        TriggerServerEvent('qb-inventory:server:closeInventory', CurrentDrop)
-        CurrentDrop = nil
+    local inventoryName = data and data.name or nil
+    if inventoryName and inventoryName:find('trunk-') then
+        CloseTrunk()
     end
+    if not inventoryName and CurrentDrop then
+        inventoryName = CurrentDrop
+    end
+
+    -- Always close the server-side session. Player-only inventory has no
+    -- secondary name, but still sets inv_busy on the server.
+    TriggerServerEvent('qb-inventory:server:closeInventory', inventoryName)
+    CurrentDrop = nil
     cb('ok')
 end)
 
@@ -714,11 +696,12 @@ RegisterNUICallback('RemoveAttachment', function(data, cb)
     end
 
     local allAttachments = exports['qb-weapons']:getConfigWeaponAttachments()
+    local weaponName = WeaponData.name
     local attachmentKey = AttachmentData.attachment
     local weaponAttachments = allAttachments and allAttachments[attachmentKey]
 
     -- Compatibility for servers that accidentally save weapon_suppressor while items.lua uses suppressor_attachment.
-    if (not weaponAttachments or not GetConfiguredComponent(weaponAttachments, WeaponData.name)) and attachmentKey == 'weapon_suppressor' then
+    if (not GetConfiguredComponent(weaponAttachments, weaponName)) and attachmentKey == 'weapon_suppressor' then
         if allAttachments and allAttachments['suppressor_attachment'] then
             attachmentKey = 'suppressor_attachment'
             AttachmentData.attachment = 'suppressor_attachment'
@@ -727,8 +710,8 @@ RegisterNUICallback('RemoveAttachment', function(data, cb)
     end
 
     -- Extra fallback: if the panel sent only a component/hash, resolve it back to the qb-weapons item key.
-    if (not weaponAttachments or not GetConfiguredComponent(weaponAttachments, WeaponData.name)) and AttachmentData.component then
-        local resolvedKey = ResolveAttachmentKey(AttachmentData, WeaponData.name, allAttachments)
+    if (not GetConfiguredComponent(weaponAttachments, weaponName)) and AttachmentData.component then
+        local resolvedKey = ResolveAttachmentKey(AttachmentData, weaponName, allAttachments)
         if resolvedKey and allAttachments[resolvedKey] then
             attachmentKey = resolvedKey
             AttachmentData.attachment = resolvedKey
@@ -736,7 +719,7 @@ RegisterNUICallback('RemoveAttachment', function(data, cb)
         end
     end
 
-    local Attachment = GetConfiguredComponent(weaponAttachments, WeaponData.name)
+    local Attachment = GetConfiguredComponent(weaponAttachments, weaponName)
     local itemInfo = QBCore.Shared.Items[attachmentKey]
 
     if not Attachment then
@@ -754,11 +737,11 @@ RegisterNUICallback('RemoveAttachment', function(data, cb)
     QBCore.Functions.TriggerCallback('qb-weapons:server:RemoveAttachment', function(NewAttachments)
         if NewAttachments ~= false then
             -- Keep the weapon data returned to NUI in sync with qb-weapons after detach.
-            -- Rebuilding through FormatWeaponAttachments keeps images/components consistent.
+            -- Without this, the new inspection panel can visually re-open with stale attachments.
             WeaponData.info = WeaponData.info or {}
             WeaponData.info.attachments = NewAttachments or {}
 
-            RemoveWeaponComponentFromPed(ped, joaat(WeaponData.name), ComponentToHash(Attachment) or joaat(Attachment))
+            RemoveWeaponComponentFromPed(ped, joaat(weaponName), ComponentToHash(Attachment) or joaat(Attachment))
             cb({ ok = true, Attachments = FormatWeaponAttachments(WeaponData), WeaponData = WeaponData, itemInfo = itemInfo })
         else
             cb({ ok = false, error = 'server_rejected', Attachments = FormatWeaponAttachments(WeaponData), WeaponData = WeaponData })
@@ -853,9 +836,9 @@ end)
 -- =================================================================
 
 CreateThread(function()
-    while not exports['qb-target'] do Wait(100) end
-    
-    exports['qb-target']:AddTargetEntity(GetGamePool('CPed'), {
+    while GetResourceState('qb-target') ~= 'started' do Wait(250) end
+
+    exports['qb-target']:AddGlobalPlayer({
         options = {
             {
                 icon = 'fa-solid fa-person-circle-question',
