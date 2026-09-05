@@ -5,14 +5,15 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>QB Inventory</title>
         <link rel="stylesheet" href="main.css" />
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css" />
-        <link rel="stylesheet" href="https://unpkg.com/floating-vue@5.2.2/dist/style.css" />
-        <script src="https://kit.fontawesome.com/d37231be1f.js" crossorigin="anonymous"></script>
-        <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/@floating-ui/core@1.6.0"></script>
-        <script src="https://cdn.jsdelivr.net/npm/@floating-ui/dom@1.6.1"></script>
-        <script src="https://unpkg.com/floating-vue@5.2.2/dist/floating-vue.umd.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.2/axios.min.js"></script>
+        <link rel="stylesheet" href="vendor/fontawesome/css/fontawesome.min.css" />
+        <link rel="stylesheet" href="vendor/fontawesome/css/solid.min.css" />
+        <link rel="stylesheet" href="vendor/fontawesome/css/brands.min.css" />
+        <link rel="stylesheet" href="vendor/floating-vue.css" />
+        <script src="vendor/vue.global.prod.js"></script>
+        <script src="vendor/floating-ui.core.umd.js"></script>
+        <script src="vendor/floating-ui.dom.umd.js"></script>
+        <script src="vendor/floating-vue.umd.js"></script>
+        <script src="vendor/axios.min.js"></script>
         <script src="app.js" defer></script>
     </head>
     <body>
@@ -34,7 +35,7 @@
                         </div>
                         <div class="current-weight">
                             <i class="fa-solid fa-weight-scale fa-beat-fade" style="color:#f59e0b;"></i>&nbsp;
-                            {{ (playerWeight / 1000).toFixed(1) }} KG / {{ (maxWeight / 1000).toFixed(1) }} KG
+                            {{ gramsToLbs(playerWeight) }} / {{ gramsToLbs(maxWeight) }} LBS
                         </div>
                     </div>
                 </div>
@@ -79,7 +80,7 @@
                         </div>
                         <div class="current-weight">
                             <i class="fa-solid fa-weight-scale fa-beat-fade" style="color:#f59e0b;"></i>&nbsp;
-                            {{ (otherInventoryWeight / 1000).toFixed(1) }} KG / {{(otherInventoryMaxWeight / 1000).toFixed(1) }} KG
+                            {{ gramsToLbs(otherInventoryWeight) }} LBS / {{ gramsToLbs(otherInventoryMaxWeight) }} LBS
                         </div>
                     </div>
                 </div>
@@ -141,7 +142,7 @@
             <div class="notification-container" v-if="showNotification">
                 <div class="notification-slot">
                     <div class="notification-title"><p>{{ notificationType }}</p></div>
-                    <div class="item-slot-img"><img :src="notificationImage" alt="" /></div>
+                    <div class="item-slot-img"><img v-bind="getImageAttrs(notificationImage)" alt="" @error="setMissingImage" /></div>
                     <div class="item-slot-amount"><p>x{{ notificationAmount }}</p></div>
                     <div class="item-slot-label"><p>{{ notificationText }}</p></div>
                 </div>
@@ -201,7 +202,7 @@
                                             { type: 'skin', label: 'Skin / Tint' }
                                         ]" :key="slotDef.type">
                                         <div class="attachment-slot-box" :class="{ 'filled': getAttachmentBySlot(slotDef.type) }" @click="getAttachmentBySlot(slotDef.type) && removeAttachment(getAttachmentBySlot(slotDef.type))" v-tooltip.left-end="getAttachmentSlotTooltip(slotDef.type)">
-                                            <img v-if="getAttachmentBySlot(slotDef.type)" :src="getAttachmentImage(getAttachmentBySlot(slotDef.type))" @error="setMissingImage" />
+                                            <img v-if="getAttachmentBySlot(slotDef.type)" v-bind="getAttachmentImageAttrs(getAttachmentBySlot(slotDef.type))" @error="setMissingImage" />
                                             <i v-else class="fa-solid fa-plus empty-slot-icon"></i>
                                         </div>
                                         <span class="slot-type-label">{{ slotDef.label }}</span>
@@ -212,7 +213,7 @@
                                     <div class="slots-container">
                                         <div class="attachment-slot-wrapper" v-for="att in overflowAttachments" :key="att.attachment">
                                             <div class="attachment-slot-box filled" @click="removeAttachment(att)" v-tooltip.left-end="'Detach ' + (att.label || att.attachment)">
-                                                <img :src="getAttachmentImage(att)" @error="setMissingImage" />
+                                                <img v-bind="getAttachmentImageAttrs(att)" @error="setMissingImage" />
                                             </div>
                                             <span class="slot-type-label">{{ att.label || att.attachment }}</span>
                                         </div>
@@ -223,6 +224,19 @@
                         </div>
                     </div>
                 </div>
+
+            <!-- DROP CONFIRMATION (3.0.2 behavior; punk theme preserved) -->
+            <div class="drop-confirm" v-if="showDropDialog">
+                <div class="drop-confirm-box">
+                    <div class="drop-title">DROP ITEM</div>
+                    <div class="drop-item-name">{{ pendingDropItem ? (pendingDropItem.label || pendingDropItem.name) : '' }}</div>
+                    <input class="drop-amount-input" type="number" min="1" :max="pendingDropItem ? pendingDropItem.amount : 1" v-model="dropDialogAmount" />
+                    <div class="drop-actions">
+                        <button @click="confirmDropDialog">DROP</button>
+                        <button @click="cancelDropDialog">CANCEL</button>
+                    </div>
+                </div>
+            </div>
 
             <!-- DRAGGED ITEM -->
             <div v-if="draggedItem" class="item-slot" :class="{ 'dragged-item': draggedItem }" :style="{ top: dragY + 'px', left: dragX + 'px' }">

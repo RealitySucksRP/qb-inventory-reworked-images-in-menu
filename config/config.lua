@@ -1,22 +1,26 @@
 Config = {
-    -- AP/QB Inventory Rework option. Enabled because this package includes patched qb-core/player.lua + cash item.
+    -- RS Punk keeps its existing cash-as-item behavior enabled.
+    -- Requires the qb-core cash patch and a `cash` item in qb-core/shared/items.lua.
     CashAsItem = true,
 
-    -- Optional HUD hide/show hook. Must name a resource that is actually installed
-    -- and started; ToggleHUD silently no-ops otherwise.
+    -- Preserve the existing RS Punk HUD integration.
     CustomHUD = {
         Enabled = true,
         ResourceName = 'rs-lilhudlife',
         ExportName = 'SetHUDLifeVisible'
     },
-    UseTarget = GetConvar('UseTarget', 'false') == 'true',
+
+    -- Discord webhook for player robbery logs. Leave empty to disable logging.
+    RobberyWebhook = '',
+
+    -- Image a /giveitem printerdocument starts with. Leave empty for none.
+    DefaultPrinterDocumentUrl = '',
 
     MaxWeight = 120000,
     MaxSlots = 40,
 
-    -- TRUE = non-unique items always stack by name, even when their freshness/expiry
-    -- differs. Merged stacks keep the EARLIER expiry so stacking never extends item life.
-    -- FALSE = old behavior: stacks only combine when expiry dates match exactly.
+    -- Non-unique items may stack by name even when freshness differs. The merged
+    -- stack keeps the earlier expiry, so stacking can never extend item life.
     StackWithDifferentExpiry = true,
 
     StashSize = {
@@ -29,13 +33,18 @@ Config = {
         slots = 50
     },
 
+    -- Revalidated server-side on every move while a secondary inventory is open.
+    DropAccessDistance = 3.5,
+    PlayerAccessDistance = 3.5,
+    ShopAccessDistance = 6.0,
+
     Keybinds = {
         Open = 'TAB',
-        Hotbar = 'Z',
+        Hotbar = 'Z'
     },
 
-    CleanupDropTime = 15,    -- in minutes
-    CleanupDropInterval = 1, -- in minutes
+    CleanupDropTime = 15,
+    CleanupDropInterval = 1,
 
     ItemDropObject = `bkr_prop_duffel_bag_01a`,
     ItemDropObjectBone = 28422,
@@ -54,5 +63,5 @@ Config = {
     VendingItems = {
         { name = 'kurkakola',    price = 4, amount = 50 },
         { name = 'water_bottle', price = 4, amount = 50 },
-    },
+    }
 }

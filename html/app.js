@@ -55,6 +55,26 @@ const InventoryContainer = Vue.createApp({
         },
     },
     methods: {
+        /* ------------------------------------------------------------
+           WEIGHT DISPLAY -- pounds.
+           ------------------------------------------------------------
+           Everything in this resource is stored and calculated in GRAMS: item
+           weights, Config.MaxWeight, StashSize/DropSize maxweight, the
+           CanAddItem check in server/functions.lua, and the ps_lib bridge all
+           speak grams. None of that changes -- this converts at the point of
+           display only, so capacity, stacking and transfer limits behave
+           exactly as before.
+
+           1 lb = 453.59237 g exactly. Config.MaxWeight is 120000 g, so the bar
+           reads 264.6 LBS -- the same carrying capacity it always was, just
+           named in the unit you use.
+           ------------------------------------------------------------ */
+        gramsToLbs(grams, decimals) {
+            const n = Number(grams);
+            if (!Number.isFinite(n)) return "0.0";
+            return (n / 453.59237).toFixed(decimals === undefined ? 1 : decimals);
+        },
+
         formatItemAmount(item) {
             if (!item) return "";
             const amount = Math.max(0, Math.floor(Number(item.amount) || 0));
@@ -68,6 +88,12 @@ const InventoryContainer = Vue.createApp({
             if (!img || img.dataset.fallbackApplied === "true") return;
             img.dataset.fallbackApplied = "true";
             img.src = "images/missing.png";
+        },
+        getImageAttrs(imagePath) {
+            let src = typeof imagePath === "string" ? imagePath.trim() : "";
+            if (!src) src = "images/missing.png";
+            if (!src.includes("/") && !src.startsWith("data:")) src = `images/${src}`;
+            return { src };
         },
         getTooltip(item) {
             return {
@@ -138,7 +164,6 @@ const InventoryContainer = Vue.createApp({
                 isAttachmentPanelOpen: false,
                 selectedWeaponForPanel: null,
                 selectedWeaponAttachmentsForPanel: [],
-                isRemovingAttachment: false,
                 // Dragging and dropping
                 currentlyDraggingItem: null,
                 currentlyDraggingSlot: null,
@@ -148,6 +173,11 @@ const InventoryContainer = Vue.createApp({
                 ghostZoom: 1,
                 dragStartInventoryType: "player",
                 transferAmount: null,
+                showDropDialog: false,
+                pendingDropItem: null,
+                pendingDropSlot: null,
+                dropDialogAmount: 1,
+                isRemovingAttachment: false,
                 inventoryActionPending: false,
                 inventoryOperationCounter: 0,
                 // Decay / expiry sync (set by setServerTime NUI action)
@@ -452,7 +482,7 @@ const InventoryContainer = Vue.createApp({
         handleDropOnOtherSlot(targetSlot) {
             this.handleItemDrop("other", targetSlot);
         },
-        async handleDropOnInventoryContainer() {
+        handleDropOnInventoryContainer() {
             if (this.inventoryActionPending) return;
             if (this.dragStartInventoryType !== "player") {
                 this.clearDragData();
@@ -461,18 +491,45 @@ const InventoryContainer = Vue.createApp({
 
             const draggingItem = this.currentlyDraggingItem;
             const sourceSlot = Number(this.currentlyDraggingSlot || (draggingItem && draggingItem.slot));
-            if (!draggingItem || !sourceSlot) {
+            if (!draggingItem || !draggingItem.name || !sourceSlot) {
                 this.clearDragData();
                 return;
             }
 
             const requestedAmount = this.transferAmount !== null ? Number(this.transferAmount) : Number(draggingItem.amount);
-            const amountToDrop = Math.max(1, Math.min(Number.isFinite(requestedAmount) ? Math.floor(requestedAmount) : Number(draggingItem.amount), Number(draggingItem.amount)));
+            const maxAmount = Number(draggingItem.amount) || 1;
+            const amountToDrop = Math.max(1, Math.min(Number.isFinite(requestedAmount) ? Math.floor(requestedAmount) : maxAmount, maxAmount));
+
+            this.pendingDropItem = { ...draggingItem };
+            this.pendingDropSlot = sourceSlot;
+            this.dropDialogAmount = amountToDrop;
+            this.showDropDialog = true;
+            this.showContextMenu = false;
+        },
+        cancelDropDialog() {
+            this.showDropDialog = false;
+            this.pendingDropItem = null;
+            this.pendingDropSlot = null;
+            this.dropDialogAmount = 1;
+            this.clearTransferAmount();
+        },
+        async confirmDropDialog() {
+            if (this.inventoryActionPending) return;
+
+            const item = this.pendingDropItem;
+            const sourceSlot = Number(this.pendingDropSlot || (item && item.slot));
+            if (!item || !item.name || !sourceSlot) {
+                this.cancelDropDialog();
+                return;
+            }
+
+            const maxAmount = Number(item.amount) || 1;
+            const amountToDrop = Math.max(1, Math.min(Math.floor(Number(this.dropDialogAmount) || 1), maxAmount));
 
             this.inventoryActionPending = true;
             try {
                 const response = await axios.post("https://qb-inventory/DropItemFromUI", {
-                    ...draggingItem,
+                    ...item,
                     amount: amountToDrop,
                     fromSlot: sourceSlot,
                     inventory: "other",
@@ -487,8 +544,8 @@ const InventoryContainer = Vue.createApp({
                 this.inventoryError(sourceSlot);
             } finally {
                 this.inventoryActionPending = false;
+                this.cancelDropDialog();
                 this.clearDragData();
-                this.clearTransferAmount();
             }
         },
         clearDragData() {
@@ -803,8 +860,13 @@ const InventoryContainer = Vue.createApp({
             }
         },
         showItemNotification(itemData) {
-            this.notificationText = itemData.item.label;
-            this.notificationImage = "images/" + itemData.item.image;
+            const item = itemData && (itemData.item || itemData);
+            if (!item || !item.label || !item.image) {
+                console.warn("Item notification skipped: missing item data", itemData);
+                return;
+            }
+            this.notificationText = item.label;
+            this.notificationImage = "images/" + item.image;
             this.notificationType = itemData.type === "add" ? "Received" : itemData.type === "use" ? "Used" : "Removed";
             this.notificationAmount = itemData.amount || 1;
             this.showNotification = true;
@@ -844,7 +906,7 @@ const InventoryContainer = Vue.createApp({
             const item = this.contextMenuItem;
             if (item) {
                 const el = document.createElement("textarea");
-                el.value = item.info.serie;
+                el.value = (item.info && (item.info.serie || item.info.serial)) || '';
                 document.body.appendChild(el);
                 el.select();
                 document.execCommand("copy");
@@ -955,6 +1017,9 @@ const InventoryContainer = Vue.createApp({
             const image = att.image || `${att.attachment}.png`;
             return `images/${image}`;
         },
+        getAttachmentImageAttrs(att) {
+            return this.getImageAttrs(this.getAttachmentImage(att));
+        },
         getAttachmentSlotTooltip(slotType) {
             const attachment = this.getAttachmentBySlot(slotType);
             if (attachment) {
@@ -993,7 +1058,7 @@ const InventoryContainer = Vue.createApp({
             }
 
             content += `<div class="tooltip-description">${description}</div>`;
-            content += `<div class="tooltip-weight"><i class="fas fa-weight-hanging"></i> ${item.weight !== undefined && item.weight !== null ? (item.weight / 1000).toFixed(1) : "N/A"}kg</div>`;
+            content += `<div class="tooltip-weight"><i class="fas fa-weight-hanging"></i> ${item.weight !== undefined && item.weight !== null ? this.gramsToLbs(item.weight, 2) : "N/A"} lbs</div>`;
 
             content += `</div>`;
             return content;
@@ -1124,8 +1189,8 @@ const InventoryContainer = Vue.createApp({
                     this.showRequiredItem(event.data);
                     break;
                 case "setServerTime":
-                    // Server time is sent for decay/expiry support. Store it AND the
-                    // local clock at sync time so getCurrentServerTime can compute drift.
+                    // Store authoritative server time plus the local sync point so
+                    // expiry/decay display remains accurate between server updates.
                     this.serverTime = event.data.serverTime || event.data.time || Math.floor(Date.now() / 1000);
                     this.clientTimeOnSync = Date.now();
                     window.__qbInventoryServerTime = this.serverTime;
