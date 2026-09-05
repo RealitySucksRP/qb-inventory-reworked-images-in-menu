@@ -1,14 +1,35 @@
-9a3960b1286755518679105afd04d4698e22f5dd684b70e69945015a73653df2  ./RS_CASH_SYNC_PATCH_INSTALL.txt
-7daecf92dadfe766b0783120cccc4db9a025151e1c8f420ad5e08d56567b0813  ./RS_CASH_SYNC_v2.6.3_VALIDATION.txt
-03ef0c73dd9c9ea0631f85f58b8f56cd721e7cac6f7e08633bb468f8d7830638  ./qb-inventory/CHANGELOG_RS_PUNK_v2.6.1.md
-3d411e57829547f3b9ced6b09d05404c8fc57617a9881ef3a3b1b61ac7145a52  ./qb-inventory/CHANGELOG_RS_PUNK_v2.6.2.md
-9dc475661904009dd7929d068d79f9b1e491e58cfd875ddbef1c397970954e09  ./qb-inventory/CHANGELOG_RS_PUNK_v2.6.3.md
-d22f6f3061552e3703be74931208523588c92211fa6d0efddcdd61b39847921e  ./qb-inventory/client/drops.lua
-3f65aea6633c21d77fab4ccc047770827d1dcadd0053b7441cb3a4d5f26fa087  ./qb-inventory/client/main.lua
-1ee33e4e46bd7b703ef98f11cd361afb4b7953c9f25db52ea96ce703a2ab57d3  ./qb-inventory/fxmanifest.lua
-3ad8bd75b236e5e55ef9b15c8d5085d7f16365c3969b8535133908192d05ae05  ./qb-inventory/html/app.js
-dc0943af1ccc27205353f3d82e9044109fe4e066861017e78cf7861e4f6ec44c  ./qb-inventory/html/index.html
-36c6da728f8bc79391baf1101cf7b6f8b73eec4431aa951790ccbefdf11e02be  ./qb-inventory/server/cash_sync.lua
-eb5eb98c2b090b6f4fdaf76ae7ddaa03f395ec1b1c58e4f09963d5bc400fd0bc  ./qb-inventory/server/commands.lua
-a1229fa39c6cf8fb52f588c469c400fb6c9eb6f8505d1224c66067da30ebce8f  ./qb-inventory/server/functions.lua
-e371cb8b0052db17cabb445e42ca03bf59f16cf6f30692cf2c298bda5dfb10c8  ./qb-inventory/server/main.lua
+# RS Punk qb-inventory v3.0.2 changed/new file SHA-256 manifest
+# Compared against the supplied qb-inventory-punk.zip
+# Extract the changed-files ZIP over the existing qb-inventory resource.
+
+a9dec43fc017d25f16f78f48883a62f05c55415a733a68c1b9a26a2a336e0245  CHANGELOG_RS_PUNK_v3.0.2.md  [ADDED]
+b57f57e2ea99bd6c982a29f8bfc13980642d260f725b71d751cbc0a9dfd14a00  INSTALL_RS_PUNK_v3.0.2_PATCH.txt  [ADDED]
+fbb33ebc678ce91e6d1a6f922cb875b66171eeb5aa1bfe0e1d9c85f03cf32f5a  README.md  [MODIFIED]
+1c4ec96b053724ab334abd84ad8bf07c1b6b2fe6de07686b247d0efaa75acb93  REQUIRES_QB_WEAPONS_PATCH.md  [ADDED]
+0cd14cf40ef3461d45eb5c99f889bd96dac498a59c72f0a1d089b1a5ebcb48e8  THIRD_PARTY_NOTICES.md  [ADDED]
+efcab0c1baca65b424506301859ce78b82876ca59c18fece9e90ac2a93def4ae  client/drops.lua  [MODIFIED]
+d76f48095a55c44976259f05b6faa432a61b1ab8621b7a956ec0eca09d36f348  client/main.lua  [MODIFIED]
+57022d7a24ae36c11d53f315eeeea3e1f5c37edc09b3b0c4079111f2f5e87589  client/vehicles.lua  [MODIFIED]
+2ece7e0e5e87fe5cfafa92931767aa3b1dda308505e3ebca9edad761af3a1299  config/config.lua  [MODIFIED]
+06e127a2a2494b3153fd841ce27b4c87eb193f128c3c50d9cd123ce3928cd176  docs/qb-core-cash-as-item.md  [ADDED]
+97a874590cc3f68efe0ad937c6ae9c969cefeebecb478f28e8bbcd41b25353f3  fxmanifest.lua  [MODIFIED]
+0c4dd5e017439b0278778b05905c5edd7b7cbd13d08b869b9181d19572708773  html/app.js  [MODIFIED]
+0f666f5977decd325586974d9d11fb928d0f78b2a1b937d00d6056b54d196e58  html/index.html  [MODIFIED]
+e57d36d1d18d391595c02bbf70b63b4e700e7d41634597b9f0ef7cfa552caf4a  html/main.css  [MODIFIED]
+550f26d03776c62d33e90b8028c6b4e2e7d1301c6ff769cff94592a93df71c68  html/vendor/axios.min.js  [ADDED]
+238cee71a3ab85b2036daf472e6627a9fe0a1f4df0d7b5ccb49f81b8f91fac54  html/vendor/floating-ui.core.umd.js  [ADDED]
+f764aa7e821402dd285561b570fb92ad5aaa3ce99f5b18a5095dbe671be263c1  html/vendor/floating-ui.dom.umd.js  [ADDED]
+d6d141fda8fe09be458190f5f11ecb0dce8ac35d9c7c0639639d9b584596cc8c  html/vendor/floating-vue.css  [ADDED]
+dfcf519a0d36f928515ef367d4fac43660885cff5c28e1e03814650a0b18fa8e  html/vendor/floating-vue.umd.js  [ADDED]
+96fa90cdf811c46f10041e5032aa591ab9638394ff84d982def0bb8b7ce7b652  html/vendor/fontawesome/css/brands.min.css  [ADDED]
+4c17b497d3e115a551dc3c07980da341b51fd72eb2436d9106024a2a43640b9d  html/vendor/fontawesome/css/fontawesome.min.css  [ADDED]
+1136ce38cf54f167da5e0d80916dadf906dda566054403be1c45ceb61f0441b6  html/vendor/fontawesome/css/solid.min.css  [ADDED]
+d7236a19bf23cbb2027280e8f51dc99d6c45976a2ed60de73382b034b18a2b68  html/vendor/fontawesome/webfonts/fa-brands-400.woff2  [ADDED]
+aa75998623a391e61c6901794ace832e3ecdd288b56d608f21bea0411acc0b8e  html/vendor/fontawesome/webfonts/fa-solid-900.woff2  [ADDED]
+aae6339a0e744cc3503f2a3ae63f5ee0d99ce39f45517e7a51fcb9ecc290ca2c  html/vendor/vue.global.prod.js  [ADDED]
+6a4016fa381affa86a906dbffa12d6970700e33a0c80cd59b2a23f7a4c35eebf  locales/en.lua  [MODIFIED]
+fbb48a65971b13068890b6b8b27be1ec6fe748113514edef9aeb42543e0d34cb  server/commands.lua  [MODIFIED]
+47b5500a657bd258985a8db39548426063ef3e89bce9e105e8309134c318e63a  server/compat.lua  [MODIFIED]
+19edf2ecc30dcc04d7d622af6bbb82662c5aa0aae88d727c545dbdb2669ab0c5  server/functions.lua  [MODIFIED]
+aaeaff176ce85906f025d9641fdb1e7f3cf7b4a1d83ce08f2bfdd7769f199e50  server/main.lua  [MODIFIED]
+f8627f19c2afb7b4e8e3468e9aaa5e928d24c72195f7587a17406b7f09a4b5a0  server/sessions.lua  [MODIFIED]

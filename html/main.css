@@ -1808,3 +1808,87 @@ body::after,
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+/* =====================================================
+   RS PUNK 3.0.2 - DROP CONFIRMATION
+   Functional addition only; existing punk inventory art/layout is unchanged.
+   ===================================================== */
+.drop-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.20);
+  pointer-events: all;
+}
+
+.drop-confirm-box {
+  min-width: 270px;
+  padding: 18px;
+  border: 1px solid var(--border-h);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 4px 40px rgba(0,0,0,0.72), 0 0 30px rgba(99,102,241,0.15);
+  color: var(--bone);
+  font-family: 'Exo 2', sans-serif;
+  text-align: center;
+}
+
+.drop-title {
+  color: var(--amber);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+
+.drop-item-name {
+  color: var(--bone-dim);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.drop-amount-input {
+  width: 100%;
+  height: 36px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: rgba(6,7,16,0.86);
+  color: var(--bone);
+  text-align: center;
+  font-family: 'Exo 2', sans-serif;
+  font-size: 15px;
+  outline: none;
+}
+
+.drop-amount-input:focus {
+  border-color: var(--amber-dim);
+  box-shadow: 0 0 12px var(--amber-glow);
+}
+
+.drop-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.drop-actions button {
+  flex: 1;
+  border: 1px solid var(--border-h);
+  background: rgba(99,102,241,0.10);
+  color: var(--bone);
+  border-radius: 5px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: 'Exo 2', sans-serif;
+  font-weight: 600;
+}
+
+.drop-actions button:hover {
+  border-color: var(--amber-dim);
+  background: var(--amber-glow);
+  color: var(--amber);
+}
