@@ -1,22 +1,23 @@
 fx_version 'cerulean'
 game 'gta5'
-lua54 'yes'
 
 author 'Kakarot / RealitySucksRP'
-description 'Open-source custom UI qb-inventory with AP/rework backend, cash-as-item support, right-click options, weapon attachments, drops, and HUD compatibility.'
-version '2.6.3-rs-punk-cash-authority'
+description 'RS Punk UI qb-inventory with 3.0.3 structural fixes and 3.0.2 server-authoritative sessions, hardened transfers, cash-as-item support, weapon attachments, drops, and HUD compatibility.'
+version '3.0.3-rs-punk'
 
 dependencies {
     'qb-core',
     'qb-weapons',
-    'oxmysql'
+    'oxmysql',
+    'qb-target'
 }
 
 shared_scripts {
     '@qb-core/shared/locale.lua',
     'locales/en.lua',
     'locales/*.lua',
-    'config/*.lua'
+    'config/config.lua',
+    'config/vehicles.lua'
 }
 
 client_scripts {
@@ -27,6 +28,7 @@ client_scripts {
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
+    'server/sessions.lua',
     'server/main.lua',
     'server/functions.lua',
     'server/cash_sync.lua',
@@ -41,19 +43,17 @@ files {
     'html/main.css',
     'html/app.js',
 
+    -- Local runtime dependencies from the 3.0.2 update.
+    'html/vendor/*.js',
+    'html/vendor/*.css',
+    'html/vendor/fontawesome/css/*.css',
+    'html/vendor/fontawesome/webfonts/*.woff2',
+
+    -- Preserve the RS Punk UI artwork/theme exactly as supplied.
     'html/*.png',
-
     'html/images/*.*',
-    'html/images/*.png',
-    'html/images/*.jpg',
-    'html/images/*.jpeg',
-    'html/images/*.webp',
-    'html/images/*.gif',
-    'html/images/*.svg',
-
     'html/dark/*.png',
     'html/dark/*.svg',
-
     'html/font/*.ttf',
     'html/font/*.otf'
 }

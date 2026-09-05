@@ -38,7 +38,7 @@ QBCore.Functions.CreateClientCallback('qb-inventory:client:vehicleCheck', functi
         local class = GetVehicleClass(inVehicle)
         local model = GetDisplayNameFromVehicleModel(GetEntityModel(inVehicle)):lower()
         local inventory = 'glovebox-' .. plate
-        cb(inventory, class, model)
+        cb(inventory, class, model, VehToNet(inVehicle))
         return
     end
 
@@ -56,7 +56,7 @@ QBCore.Functions.CreateClientCallback('qb-inventory:client:vehicleCheck', functi
                 local plate = GetVehicleNumberPlateText(vehicle)
                 local model = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle)):lower() 
                 local inventory = 'trunk-' .. plate
-                cb(inventory, class, model)
+                cb(inventory, class, model, VehToNet(vehicle))
             else
                 QBCore.Functions.Notify(Lang:t('notify.vlocked'), 'error')
                 return

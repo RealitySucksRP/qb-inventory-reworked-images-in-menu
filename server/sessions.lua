@@ -196,8 +196,37 @@ function IsValidMoveAmount(amount)
     return true
 end
 
+function CleanupInventorySession(src, closeRelatedClient)
+    src = tonumber(src)
+    if not src then return end
+
+    local ownSession = InventorySessions[src]
+    if ownSession and type(ownSession.name) == 'string' then
+        local targetId = tonumber(ownSession.name:match('^otherplayer%-(.+)'))
+        if targetId and QBCore.Functions.GetPlayer(targetId) then
+            Player(targetId).state.inv_busy = false
+        end
+    end
+    InventorySessions[src] = nil
+
+    -- If the departing player is the victim, close any robber that currently
+    -- has that exact player inventory open.
+    local victimInventory = 'otherplayer-' .. src
+    for openerId, session in pairs(InventorySessions) do
+        if session and session.name == victimInventory then
+            InventorySessions[openerId] = nil
+            if QBCore.Functions.GetPlayer(openerId) then
+                Player(openerId).state.inv_busy = false
+                if closeRelatedClient ~= false then
+                    TriggerClientEvent('qb-inventory:client:closeInv', openerId)
+                end
+            end
+        end
+    end
+end
+
 AddEventHandler('playerDropped', function()
-    ClearInventorySession(source)
+    CleanupInventorySession(source, true)
 end)
 
 AddEventHandler('QBCore:Server:PlayerUnloaded', function(playerOrSource)
@@ -205,5 +234,16 @@ AddEventHandler('QBCore:Server:PlayerUnloaded', function(playerOrSource)
     if type(playerOrSource) == 'table' and playerOrSource.PlayerData then
         src = playerOrSource.PlayerData.source
     end
-    ClearInventorySession(src)
+    CleanupInventorySession(src, true)
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+    local players = QBCore.Functions.GetPlayers()
+    for _, playerId in pairs(players) do
+        if QBCore.Functions.GetPlayer(playerId) then
+            Player(playerId).state.inv_busy = false
+        end
+    end
+    InventorySessions = {}
 end)

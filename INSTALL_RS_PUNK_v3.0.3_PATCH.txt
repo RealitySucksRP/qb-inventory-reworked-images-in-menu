@@ -1,0 +1,14 @@
+RS Punk qb-inventory v3.0.3 overlay patch
+
+IMPORTANT: This ZIP is an overlay patch, not a standalone resource.
+
+1. Stop qb-inventory.
+2. Back up your current qb-inventory folder.
+3. Start from the supplied RS Punk resource or the prior v3.0.2 merged Punk build.
+4. Extract this patch over the current qb-inventory folder and overwrite matching files.
+5. Keep the resource folder named exactly: qb-inventory
+6. Confirm qb-target, qb-core, qb-weapons and oxmysql are started.
+7. Keep your qb-core cash-as-item patch because Config.CashAsItem remains enabled.
+8. Start qb-inventory and test player inventory, stash, shop, trunk/glovebox, floor drop, player search/robbery, notifications and attachment removal.
+
+The Punk menu artwork is not replaced by this patch.
