@@ -13,13 +13,32 @@ jobs:
         with:
           ref: source-update-punk-v3.0.3-final
           fetch-depth: 0
-      - name: Reconstruct verified overlay
+      - name: Reconstruct verified RS overlay
         shell: bash
         run: |
           set -euo pipefail
           cat .rs-update/chunk-*.txt | base64 -d > /tmp/rs-overlay.tgz
-          echo "4e26051bb64aa5091dccc1e3a980f5c488e9201e14613b5b0376ecc5ecf35459  /tmp/rs-overlay.tgz" | sha256sum -c -
+          echo "b0b4946029b6f6f14d3814af1d665bfaaf9298aa1811663d701bc9469dbdba83  /tmp/rs-overlay.tgz" | sha256sum -c -
           tar -xzf /tmp/rs-overlay.tgz -C .
+      - name: Install verified public vendor dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p html/vendor/fontawesome/css html/vendor/fontawesome/webfonts
+          grab() { url="$1"; dest="$2"; sum="$3"; curl -L --fail --retry 3 "$url" -o "$dest"; echo "$sum  $dest" | sha256sum -c -; }
+          anya="https://raw.githubusercontent.com/anya-project/qb-inventory-rework/95b13cfc91c159ba5dbbd4fc94aa99a1ff7d2808/html/lib"
+          grab "$anya/axios.min.js" html/vendor/axios.min.js 550f26d03776c62d33e90b8028c6b4e2e7d1301c6ff769cff94592a93df71c68
+          grab "$anya/floating-ui.core.umd.min.js" html/vendor/floating-ui.core.umd.js 238cee71a3ab85b2036daf472e6627a9fe0a1f4df0d7b5ccb49f81b8f91fac54
+          grab "$anya/floating-ui.dom.umd.min.js" html/vendor/floating-ui.dom.umd.js f764aa7e821402dd285561b570fb92ad5aaa3ce99f5b18a5095dbe671be263c1
+          grab "$anya/floating-vue.css" html/vendor/floating-vue.css d6d141fda8fe09be458190f5f11ecb0dce8ac35d9c7c0639639d9b584596cc8c
+          grab "$anya/floating-vue.umd.js" html/vendor/floating-vue.umd.js dfcf519a0d36f928515ef367d4fac43660885cff5c28e1e03814650a0b18fa8e
+          grab "https://cdn.jsdelivr.net/npm/vue@3.5.42/dist/vue.global.prod.js" html/vendor/vue.global.prod.js aae6339a0e744cc3503f2a3ae63f5ee0d99ce39f45517e7a51fcb9ecc290ca2c
+          fa="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2"
+          grab "$fa/css/brands.min.css" html/vendor/fontawesome/css/brands.min.css 96fa90cdf811c46f10041e5032aa591ab9638394ff84d982def0bb8b7ce7b652
+          grab "$fa/css/fontawesome.min.css" html/vendor/fontawesome/css/fontawesome.min.css 4c17b497d3e115a551dc3c07980da341b51fd72eb2436d9106024a2a43640b9d
+          grab "$fa/css/solid.min.css" html/vendor/fontawesome/css/solid.min.css 1136ce38cf54f167da5e0d80916dadf906dda566054403be1c45ceb61f0441b6
+          grab "$fa/webfonts/fa-brands-400.woff2" html/vendor/fontawesome/webfonts/fa-brands-400.woff2 d7236a19bf23cbb2027280e8f51dc99d6c45976a2ed60de73382b034b18a2b68
+          grab "$fa/webfonts/fa-solid-900.woff2" html/vendor/fontawesome/webfonts/fa-solid-900.woff2 aa75998623a391e61c6901794ace832e3ecdd288b56d608f21bea0411acc0b8e
       - name: Remove temporary updater
         run: |
           rm -rf .rs-update
@@ -30,5 +49,5 @@ jobs:
           git config user.name "RealitySucksRP"
           git config user.email "williamb1982@live.com"
           git add -A
-          git commit -m "Update Punk inventory to v3.0.3" || exit 0
+          git commit -m "Update Punk inventory to v3.0.3"
           git push origin HEAD:source-update-punk-v3.0.3-final
