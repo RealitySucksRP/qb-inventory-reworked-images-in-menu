@@ -5,6 +5,7 @@
 <p align="center">
   <a href="https://reality-sucks-rp-webstore.tebex.io/package/7449247"><img src="https://img.shields.io/badge/GET%20IT%20FREE-TEBEX-ff6a00?style=for-the-badge" alt="Get RS Punk Inventory on Tebex"></a>
   <a href="https://reality-sucks-rp-webstore.tebex.io/"><img src="https://img.shields.io/badge/BROWSE-FULL%20STORE-111111?style=for-the-badge" alt="Browse RealitySucksRP Tebex Store"></a>
+  <a href="https://realitysucksrp.github.io/"><img src="https://img.shields.io/badge/VISIT-WEBSITE-0f6fff?style=for-the-badge" alt="Visit RealitySucksRP website"></a>
   <a href="https://discord.gg/e9V3rPHySx"><img src="https://img.shields.io/badge/JOIN-DISCORD-5865F2?style=for-the-badge" alt="Join RealitySucksRP Discord"></a>
 </p>
 
@@ -246,6 +247,21 @@ ensure qb-inventory
 
 5. Configure cash, HUD, item, and inventory options.
 6. Restart the server.
+
+## Complete FiveM Servers For Sale
+
+I love making scripts and running wild in GTA, but I also enjoy building complete servers. I use tested RealitySucksRP systems and configure the build around the owner's gameplay, framework, economy, theme and direction.
+
+- **QBCore Shell — $500**
+- **Zombie Server — $700**
+- **Full RP Server — $850**
+- **30 days of Discord setup/support included**
+
+**Website:** https://realitysucksrp.github.io/
+
+**Tebex:** https://reality-sucks-rp-webstore.tebex.io/
+
+**Discord:** https://discord.gg/e9V3rPHySx
 
 ## ❤️ Credits
 
