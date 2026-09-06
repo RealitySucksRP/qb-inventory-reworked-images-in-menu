@@ -1,5 +1,10 @@
 # Making cash an item in qb-core
 
+> **v3.0.4 server-owner warning:** Cash-as-item changes `RemoveMoney('cash', ...)` into a physical inventory operation. A death/zombie/medical/hardcore resource that charges cash while the player is dead can therefore remove the real `cash` item. Keep `set qb_protect_cash_while_dead 1` enabled unless physical cash loss on death is intentionally part of your server design, and read `../SERVER_OWNER_COMPATIBILITY_NOTES.md` before installing death-loss scripts.
+>
+> The QBCore code examples below document the cash-as-item integration model. If your `qb-core/server/player.lua` already contains the v3.0.4 death-cash guard, **do not replace it with an older unguarded copy of these functions**. Merge cash-as-item support without removing the guard.
+
+
 These edits are only required when `Config.CashAsItem = true` (the default).
 Set it to `false` in `config/config.lua` and you can skip this entire page.
 
