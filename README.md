@@ -3,11 +3,12 @@
 </p>
 
 <p align="center">
-  <a href="https://ko-fi.com/R6R51XYJ6N">
-    <img src="https://img.shields.io/badge/Support%20me%20on%20Ko--fi-72A4F2?logo=ko-fi&logoColor=white" alt="Support me on Ko-fi">
-  </a>
+  <a href="https://reality-sucks-rp-webstore.tebex.io/package/7449247"><img src="https://img.shields.io/badge/GET%20IT%20FREE-TEBEX-ff6a00?style=for-the-badge" alt="Get RS Punk Inventory on Tebex"></a>
+  <a href="https://reality-sucks-rp-webstore.tebex.io/"><img src="https://img.shields.io/badge/BROWSE-FULL%20STORE-111111?style=for-the-badge" alt="Browse RealitySucksRP Tebex Store"></a>
+  <a href="https://discord.gg/e9V3rPHySx"><img src="https://img.shields.io/badge/JOIN-DISCORD-5865F2?style=for-the-badge" alt="Join RealitySucksRP Discord"></a>
 </p>
-CHECK OUT MY TEBEX STORE: https://reality-sucks-rp-webstore.tebex.io/
+
+> I build my own FiveM scripts and complete server setups: shops, weapons, phones, racing, customs, garages, dealerships, zombie apocalypse systems, warfare, Phantom encounters, UI and more. My resources are tested in my own server builds and can be configured around the server owner's setup.
 
 # ⚡ RealitySucksRP qb-inventory — Custom UI Edition ⚡
 
