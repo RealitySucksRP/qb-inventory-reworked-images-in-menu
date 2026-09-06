@@ -2,8 +2,8 @@ fx_version 'cerulean'
 game 'gta5'
 
 author 'Kakarot / RealitySucksRP'
-description 'RS Punk UI qb-inventory with 3.0.3 structural fixes and 3.0.2 server-authoritative sessions, hardened transfers, cash-as-item support, weapon attachments, drops, and HUD compatibility.'
-version '3.0.3-rs-punk'
+description 'RS Punk UI qb-inventory with 3.0.4 death-cash protection, 3.0.3 structural fixes, server-authoritative sessions, hardened transfers, cash-as-item support, weapon attachments, drops, and HUD compatibility.'
+version '3.0.4-rs-punk'
 
 dependencies {
     'qb-core',

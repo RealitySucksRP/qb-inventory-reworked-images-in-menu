@@ -3,6 +3,15 @@ Config = {
     -- Requires the qb-core cash patch and a `cash` item in qb-core/shared/items.lua.
     CashAsItem = true,
 
+    -- Canonical physical currency item used by cash sync, death/respawn
+    -- preservation, SetInventory protection, and direct RemoveItem guards.
+    -- Keep this aligned with qb-core/shared/items.lua.
+    CashItemName = 'cash',
+
+    -- Recommended server.cfg safety defaults for Cash-As-Item servers:
+    -- set qb_protect_cash_while_dead 1
+    -- set qb_death_cash_trace 1
+
     -- Preserve the existing RS Punk HUD integration.
     CustomHUD = {
         Enabled = true,
