@@ -1,0 +1,326 @@
+--- a/fxmanifest.lua
++++ b/fxmanifest.lua
+@@ -2,8 +2,8 @@
+ game 'gta5'
+ 
+ author 'Kakarot / RealitySucksRP'
+-description 'RS Punk UI qb-inventory with 3.0.3 structural fixes and 3.0.2 server-authoritative sessions, hardened transfers, cash-as-item support, weapon attachments, drops, and HUD compatibility.'
+-version '3.0.3-rs-punk'
++description 'RS Punk UI qb-inventory with 3.0.4 death-cash protection, 3.0.3 structural fixes, server-authoritative sessions, hardened transfers, cash-as-item support, weapon attachments, drops, and HUD compatibility.'
++version '3.0.4-rs-punk'
+ 
+ dependencies {
+     'qb-core',
+--- a/config/config.lua
++++ b/config/config.lua
+@@ -2,6 +2,15 @@
+     -- RS Punk keeps its existing cash-as-item behavior enabled.
+     -- Requires the qb-core cash patch and a `cash` item in qb-core/shared/items.lua.
+     CashAsItem = true,
++
++    -- Canonical physical currency item used by cash sync, death/respawn
++    -- preservation, SetInventory protection, and direct RemoveItem guards.
++    -- Keep this aligned with qb-core/shared/items.lua.
++    CashItemName = 'cash',
++
++    -- Recommended server.cfg safety defaults for Cash-As-Item servers:
++    -- set qb_protect_cash_while_dead 1
++    -- set qb_death_cash_trace 1
+ 
+     -- Preserve the existing RS Punk HUD integration.
+     CustomHUD = {
+--- a/docs/qb-core-cash-as-item.md
++++ b/docs/qb-core-cash-as-item.md
+@@ -1,4 +1,9 @@
+ # Making cash an item in qb-core
++
++> **v3.0.4 server-owner warning:** Cash-as-item changes `RemoveMoney('cash', ...)` into a physical inventory operation. A death/zombie/medical/hardcore resource that charges cash while the player is dead can therefore remove the real `cash` item. Keep `set qb_protect_cash_while_dead 1` enabled unless physical cash loss on death is intentionally part of your server design, and read `../SERVER_OWNER_COMPATIBILITY_NOTES.md` before installing death-loss scripts.
++>
++> The QBCore code examples below document the cash-as-item integration model. If your `qb-core/server/player.lua` already contains the v3.0.4 death-cash guard, **do not replace it with an older unguarded copy of these functions**. Merge cash-as-item support without removing the guard.
++
+ 
+ These edits are only required when `Config.CashAsItem = true` (the default).
+ Set it to `false` in `config/config.lua` and you can skip this entire page.
+--- a/server/functions.lua
++++ b/server/functions.lua
+@@ -128,6 +128,44 @@
+ end
+ exports('SaveInventory', SaveInventory)
+ 
++-- SERVER OWNER COMPATIBILITY NOTE:
++-- CashAsItem makes framework cash operations inventory operations. Any external
++-- death/zombie/medical/hardcore resource calling RemoveMoney('cash'), RemoveCash,
++-- or RemoveItem(cash) can remove physical cash unless the death guard blocks it.
++-- A live conflict was traced with reason=zombie-death-loss. See the package
++-- SERVER_OWNER_COMPATIBILITY_NOTES.md before disabling this protection.
++local function IsDeathCashProtectedPlayer(player)
++    if not Config.CashAsItem or GetConvarInt('qb_protect_cash_while_dead', 1) ~= 1 then return false end
++    if not player or player.Offline or not player.PlayerData then return false end
++
++    local metadata = player.PlayerData.metadata or {}
++    if metadata.isdead == true or metadata.inlaststand == true then return true end
++
++    -- Close the short race before qb-ambulancejob has replicated isdead/inlaststand.
++    local src = tonumber(player.PlayerData.source)
++    if src and src > 0 then
++        local ped = GetPlayerPed(src)
++        if ped and ped ~= 0 then
++            local ok, health = pcall(GetEntityHealth, ped)
++            if ok and tonumber(health) and health <= 0 then return true end
++        end
++    end
++
++    return false
++end
++
++local function LogBlockedDeathCash(source, amount, reason, action)
++    local invoking = GetInvokingResource() or 'unknown-resource'
++    print(('[qb-inventory][death-cash-guard] BLOCKED %s while dead | src=%s amount=%s reason=%s invoking=%s'):format(
++        tostring(action or 'cash removal'), tostring(source), tostring(amount), tostring(reason or 'unknown'), tostring(invoking)))
++    if GetConvarInt('qb_death_cash_trace', 1) == 1 and debug and debug.traceback then
++        print('[qb-inventory][death-cash-guard] call trace:' .. debug.traceback('', 2))
++    end
++    TriggerEvent('qb-log:server:CreateLog', 'playerinventory', 'Blocked death cash removal', 'orange',
++        ('**Player id:** %s | **Amount:** %s | **Action:** %s | **Reason:** %s | **Resource:** %s'):format(
++            tostring(source), tostring(amount), tostring(action or 'cash removal'), tostring(reason or 'unknown'), tostring(invoking)))
++end
++
+ function AddCash(source, amount, reason)
+     if not source or not amount then return false end
+     amount = tonumber(amount)
+@@ -138,12 +176,12 @@
+     reason = reason or 'unknown'
+ 
+     if Config.CashAsItem then
+-        if not QBCore.Shared.Items['cash'] then
+-            print('[qb-inventory] CashAsItem is true, but qb-core/shared/items.lua is missing item: cash')
++        if not QBCore.Shared.Items[Config.CashItemName or 'cash'] then
++            print(('[qb-inventory] CashAsItem is true, but qb-core/shared/items.lua is missing item: %s'):format(Config.CashItemName or 'cash'))
+             return false
+         end
+ 
+-        return AddItem(source, 'cash', amount, nil, {}, 'money_as_item:add (' .. reason .. ')')
++        return AddItem(source, Config.CashItemName or 'cash', amount, nil, {}, 'money_as_item:add (' .. reason .. ')')
+     end
+ 
+     return PlayerObject.Functions.AddMoney('cash', amount, reason)
+@@ -159,14 +197,19 @@
+     if not PlayerObject then return false end
+     reason = reason or 'unknown'
+ 
++    if IsDeathCashProtectedPlayer(PlayerObject) then
++        LogBlockedDeathCash(source, amount, reason, 'RemoveCash')
++        return false
++    end
++
+     if Config.CashAsItem then
+-        if not QBCore.Shared.Items['cash'] then
+-            print('[qb-inventory] CashAsItem is true, but qb-core/shared/items.lua is missing item: cash')
++        if not QBCore.Shared.Items[Config.CashItemName or 'cash'] then
++            print(('[qb-inventory] CashAsItem is true, but qb-core/shared/items.lua is missing item: %s'):format(Config.CashItemName or 'cash'))
+             return false
+         end
+ 
+-        if HasItem(source, 'cash', amount) then
+-            return RemoveItem(source, 'cash', amount, nil, 'money_as_item:remove (' .. reason .. ')')
++        if HasItem(source, Config.CashItemName or 'cash', amount) then
++            return RemoveItem(source, Config.CashItemName or 'cash', amount, nil, 'money_as_item:remove (' .. reason .. ')')
+         end
+ 
+         return false
+@@ -175,6 +218,8 @@
+     return PlayerObject.Functions.RemoveMoney('cash', amount, reason)
+ end
+ exports('RemoveCash', RemoveCash)
++
++local PreserveCashInReplacementInventory
+ 
+ function SetInventory(identifier, items, reason)
+     local player = QBCore.Functions.GetPlayer(identifier)
+@@ -184,10 +229,13 @@
+     end
+ 
+     if player then
++        items = PreserveCashInReplacementInventory(player, items)
++        if not items then return false end
++
+         player.Functions.SetPlayerData('items', items)
+         ScheduleSave(identifier)
+         if Config.CashAsItem and RSInventorySetCashAccountFromItem then
+-            RSInventorySetCashAccountFromItem(identifier, GetItemCount(identifier, 'cash') or 0,
++            RSInventorySetCashAccountFromItem(identifier, GetItemCount(identifier, Config.CashItemName or 'cash') or 0,
+                                               'set-inventory')
+         end
+         if not player.Offline then
+@@ -204,6 +252,7 @@
+     local setReason = reason or 'No reason specified'
+     local resourceName = GetInvokingResource() or 'qb-inventory'
+     TriggerEvent('qb-log:server:CreateLog', 'playerinventory', 'Inventory Set', 'blue', '**Inventory:** ' .. invName .. '\n' .. '**Items:** ' .. json.encode(items) .. '\n' .. '**Reason:** ' .. setReason .. '\n' .. '**Resource:** ' .. resourceName)
++    return true
+ end
+ exports('SetInventory', SetInventory)
+ 
+@@ -406,14 +455,99 @@
+ end
+ exports('GetFreeWeight', GetFreeWeight)
+ 
++local function GetConfiguredCashItemName()
++    local name = Config.CashItemName
++    if type(name) ~= 'string' or name == '' then name = 'cash' end
++    return name:lower()
++end
++
++local function IsConfiguredCashItem(itemData)
++    return itemData and type(itemData.name) == 'string' and itemData.name:lower() == GetConfiguredCashItemName()
++end
++
++PreserveCashInReplacementInventory = function(player, replacementItems)
++    if not Config.CashAsItem or not player then return replacementItems end
++
++    replacementItems = type(replacementItems) == 'table' and replacementItems or {}
++
++    -- If the caller explicitly supplied a cash stack, treat that as intentional
++    -- and let the normal cash sync below reconcile the account to it.
++    for _, itemData in pairs(replacementItems) do
++        if IsConfiguredCashItem(itemData) then return replacementItems end
++    end
++
++    local existingCash = {}
++    for _, itemData in pairs(player.PlayerData.items or {}) do
++        if IsConfiguredCashItem(itemData) then
++            existingCash[#existingCash + 1] = itemData
++        end
++    end
++    if #existingCash == 0 then return replacementItems end
++
++    local function firstFreeSlot(preferred)
++        preferred = tonumber(preferred)
++        if preferred and preferred >= 1 and preferred <= Config.MaxSlots and replacementItems[preferred] == nil then
++            return preferred
++        end
++        for slot = 1, Config.MaxSlots do
++            if replacementItems[slot] == nil then return slot end
++        end
++        return nil
++    end
++
++    for _, itemData in ipairs(existingCash) do
++        local slot = firstFreeSlot(itemData.slot)
++        if not slot then
++            print(('[qb-inventory] BLOCKED SetInventory cash loss for source=%s: replacement inventory has no free slot for protected %s.'):format(
++                tostring(player.PlayerData.source), GetConfiguredCashItemName()))
++            return nil
++        end
++        local preserved = {}
++        for key, value in pairs(itemData) do preserved[key] = value end
++        preserved.slot = slot
++        replacementItems[slot] = preserved
++    end
++
++    return replacementItems
++end
++
++local function SchedulePostClearCashRepair(source)
++    if not Config.CashAsItem then return end
++
++    -- A number of ambulance/medical resources call ClearInventory() and then
++    -- immediately perform their own inventory write. If that second write drops
++    -- the physical cash stack, the cash drift reconciler would otherwise accept
++    -- zero as authoritative and erase PlayerData.money.cash too. Re-read the
++    -- account after the clear and let the normal cash bridge rebuild the physical
++    -- stack if an external wipe raced us. The account is read fresh on every pass,
++    -- so legitimate cash changes are never restored to an old snapshot.
++    for _, delay in ipairs({ 150, 750, 3000 }) do
++        local delayMs = delay
++        SetTimeout(delayMs, function()
++            if QBCore.Functions.GetPlayer(source) then
++                if RSInventorySyncCashFromAccount then
++                    RSInventorySyncCashFromAccount(source, ('post-clear-repair:%sms'):format(delayMs))
++                end
++
++                -- Also rewrite the DB inventory from the authoritative live player
++                -- state. Some ambulance forks perform a raw SQL inventory wipe
++                -- immediately after ClearInventory(), bypassing this resource's
++                -- preservation logic entirely. Death is infrequent enough that
++                -- three guarded writes are preferable to permanent cash loss.
++                SaveInventory(source)
++            end
++        end)
++    end
++end
++
+ function ClearInventory(source, filterItems)
+     local player = QBCore.Functions.GetPlayer(source)
+     if not player then return end
+ 
+     local savedItemData = {}
+     if Config.CashAsItem then
+-        for slot, itemData in pairs(player.PlayerData.items) do
+-            if itemData and itemData.name == 'cash' then
++        for slot, itemData in pairs(player.PlayerData.items or {}) do
++            if IsConfiguredCashItem(itemData) then
+                 savedItemData[slot] = itemData
+             end
+         end
+@@ -432,7 +566,15 @@
+     end
+ 
+     player.Functions.SetPlayerData('items', savedItemData)
++
++    if Config.CashAsItem and RSInventorySetCashAccountFromItem then
++        local cashTotal = GetItemCount(source, GetConfiguredCashItemName()) or 0
++        RSInventorySetCashAccountFromItem(source, cashTotal, 'clear-inventory-preserve-cash')
++    end
++
+     ScheduleSave(source)
++    SchedulePostClearCashRepair(source)
++
+     if not player.Offline then
+         local logMessage = string.format('**%s (citizenid: %s | id: %s)** inventory cleared', GetPlayerName(source), player.PlayerData.citizenid, source)
+         TriggerEvent('qb-log:server:CreateLog', 'playerinventory', 'ClearInventory', 'red', logMessage)
+@@ -452,6 +594,9 @@
+         end
+         if Player(source).state.inv_busy then
+             TriggerClientEvent('qb-inventory:client:updateInventory', source, player.PlayerData.items)
++        end
++        if Config.CashAsItem then
++            TriggerClientEvent('qb-inventory:client:updateCash', source, GetItemCount(source, GetConfiguredCashItemName()) or 0)
+         end
+     end
+ end
+@@ -834,8 +979,8 @@
+     if inventoryType == 'player' then
+         player.Functions.SetPlayerData('items', inventory)
+         ScheduleSave(identifier)
+-        if item == 'cash' and Config.CashAsItem then
+-            local cashTotal = GetItemCount(identifier, 'cash') or 0
++        if item == (Config.CashItemName or 'cash') and Config.CashAsItem then
++            local cashTotal = GetItemCount(identifier, Config.CashItemName or 'cash') or 0
+             if RSInventorySetCashAccountFromItem then
+                 RSInventorySetCashAccountFromItem(identifier, cashTotal, 'cash-item-added')
+             else
+@@ -872,6 +1017,13 @@
+ 
+     local player = QBCore.Functions.GetPlayer(identifier)
+     local inventory, inventoryType, inventorySlots
++
++    -- Final authority guard for scripts that bypass QBCore RemoveMoney and call
++    -- qb-inventory:RemoveItem('cash', ...) directly while the player is dead.
++    if player and item == (Config.CashItemName or 'cash'):lower() and IsDeathCashProtectedPlayer(player) then
++        LogBlockedDeathCash(identifier, amount, reason, 'RemoveItem(' .. item .. ')')
++        return false
++    end
+ 
+     if player then
+         inventory, inventoryType, inventorySlots = player.PlayerData.items, 'player', Config.MaxSlots
+@@ -988,8 +1140,8 @@
+     if inventoryType == 'player' then
+         player.Functions.SetPlayerData('items', inventory)
+         ScheduleSave(identifier)
+-        if itemName == 'cash' and Config.CashAsItem then
+-            local cashTotal = GetItemCount(identifier, 'cash') or 0
++        if itemName == (Config.CashItemName or 'cash') and Config.CashAsItem then
++            local cashTotal = GetItemCount(identifier, Config.CashItemName or 'cash') or 0
+             if RSInventorySetCashAccountFromItem then
+                 RSInventorySetCashAccountFromItem(identifier, cashTotal, 'cash-item-removed')
+             else
