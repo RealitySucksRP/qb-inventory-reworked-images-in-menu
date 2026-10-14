@@ -1,8 +1,8 @@
-# RS Punk qb-inventory — Server Owner Compatibility Notes: Cash-As-Item + Death / Respawn Resources
+# Server Owner Compatibility Notes — Cash-As-Item + Death / Respawn Resources
 
 ## Read this before enabling physical cash
 
-RS Punk qb-inventory ships with `Config.CashAsItem = true`. When `qb-inventory` is configured with cash as a physical inventory item, QBCore cash and the `cash` item are intentionally synchronized.
+When `qb-inventory` is configured with cash as a physical inventory item, QBCore cash and the `cash` item are intentionally synchronized.
 
 That means this normal framework call:
 
@@ -19,7 +19,7 @@ This is correct behavior for purchases, fines, shops, and other normal cash tran
 A live server trace identified this exact conflict:
 
 ```text
-[qb-core][death-cash-guard] BLOCKED cash removal while dead | src=1 amount=1000 reason=zombie-death-loss invoking=RealitySucks_ZombieHubs
+[qb-inventory][death-cash-guard] BLOCKED cash removal while dead | src=1 amount=1000 reason=zombie-death-loss invoking=RealitySucks_ZombieHubs
 ```
 
 The caller was `RealitySucks_ZombieHubs`, using the reason `zombie-death-loss`.
@@ -45,7 +45,7 @@ cash
 isdead
 inlaststand
 death-loss
-death_loss
+death\_loss
 death penalty
 lost $
 WipeInventoryOnRespawn
@@ -67,7 +67,7 @@ set qb_protect_cash_while_dead 1
 
 This is the recommended default for this package.
 
-Death/downed cash-removal attempts are rejected at both QBCore and qb-inventory authority layers.
+With the documented qb-core cash-as-item patch, QBCore cash removal delegates into qb-inventory, where `RemoveCash`/`RemoveItem(cash)` enforce the death/downed guard before physical cash is removed.
 
 ### If a resource has an optional death-money penalty
 
@@ -133,16 +133,16 @@ set qb_death_cash_trace 1
 
 A blocked attempt prints:
 
-- player source
-- attempted amount
-- reason string
-- invoking resource when FiveM exposes it
-- Lua call trace
+* player source
+* attempted amount
+* reason string
+* invoking resource when FiveM exposes it
+* Lua call trace
 
 Example:
 
 ```text
-[qb-core][death-cash-guard] BLOCKED cash removal while dead | src=1 amount=1000 reason=zombie-death-loss invoking=RealitySucks_ZombieHubs
+[qb-inventory][death-cash-guard] BLOCKED cash removal while dead | src=1 amount=1000 reason=zombie-death-loss invoking=RealitySucks_ZombieHubs
 ```
 
 That line is the first place to look when a server owner reports that cash disappears at death.
@@ -154,8 +154,7 @@ That line is the first place to look when a server owner reports that cash disap
 Once enabled, all resources that call QBCore cash functions must be treated as inventory-integrated code. A death penalty that used to modify only `PlayerData.money.cash` can now remove the real `cash` item. Review those integrations before release rather than treating the HUD, inventory, medical script, and death script as isolated systems.
 
 
-## RS Punk v3.0.4 note
 
-This Punk edition and the sibling Zombie-art edition use the same client/server inventory brain for the protected code paths. The v3.0.4 hardening was therefore applied to the shared backend logic without changing the Punk NUI artwork, images, fonts, layout, or menu theme.
+## RS Punk v3.0.5 production-guard note
 
-`Config.CashItemName = 'cash'` is now the single currency item name used by the death/respawn safeguards in this build. If your framework uses a differently named physical currency item, change that setting and the corresponding framework/shared-item definition together.
+The Punk edition and its sibling build now share the same audited client/server inventory authority paths. The Punk NUI artwork/layout remains separate. `Config.CashItemName` is the canonical physical-currency item name throughout the cash/death protection path; do not hard-code a different currency item in external integrations.

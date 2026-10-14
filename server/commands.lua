@@ -7,8 +7,8 @@ QBCore.Commands.Add('giveitem', 'Give An Item (Admin Only)', { { name = 'id', he
     local player = QBCore.Functions.GetPlayer(id)
     local itemName = tostring(args[2]):lower()
     local amount = tonumber(args[3]) or 1
-    if itemName == 'cash' then
-        QBCore.Functions.Notify(source, 'Spawning "cash" as an item is not allowed. Use /givemoney instead.', 'error', 7500)
+    if itemName == (Config.CashItemName or 'cash') then
+        QBCore.Functions.Notify(source, ('Spawning "%s" as an item is not allowed. Use /givemoney instead.'):format(Config.CashItemName or 'cash'), 'error', 7500)
         return
     end
 
@@ -42,7 +42,6 @@ QBCore.Commands.Add('giveitem', 'Give An Item (Admin Only)', { { name = 'id', he
 
             if AddItem(id, itemData['name'], amount, false, info, 'give item command') then
     QBCore.Functions.Notify(source, Lang:t('notify.yhg') .. GetPlayerName(id) .. ' ' .. amount .. ' ' .. itemData['name'] .. '', 'success')
-    TriggerClientEvent('qb-inventory:client:ItemBox', id, itemData, 'add', amount)
     local targetPlayerObject = Player(id)
     if targetPlayerObject and targetPlayerObject.state.inv_busy then
         TriggerClientEvent('qb-inventory:client:updateInventory', id, player.PlayerData.items)
@@ -62,8 +61,9 @@ QBCore.Commands.Add('randomitems', 'Receive random items', {}, false, function(s
     local player = QBCore.Functions.GetPlayer(source)
     local playerInventory = player.PlayerData.items
     local filteredItems = {}
+    local cashItemName = (Config.CashItemName or 'cash'):lower()
     for k, v in pairs(QBCore.Shared.Items) do
-        if QBCore.Shared.Items[k]['type'] ~= 'weapon' then
+        if QBCore.Shared.Items[k]['type'] ~= 'weapon' and tostring(v.name):lower() ~= cashItemName then
             filteredItems[#filteredItems + 1] = v
         end
     end
@@ -82,7 +82,6 @@ QBCore.Commands.Add('randomitems', 'Receive random items', {}, false, function(s
         end
         if emptySlot then
             if AddItem(source, randitem.name, amount, emptySlot, false, 'random items command') then
-                TriggerClientEvent('qb-inventory:client:ItemBox', source, QBCore.Shared.Items[randitem.name], 'add')
                 player = QBCore.Functions.GetPlayer(source)
                 playerInventory = player.PlayerData.items
                 if Player(source).state.inv_busy then TriggerClientEvent('qb-inventory:client:updateInventory', source, player.PlayerData.items) end
@@ -108,7 +107,7 @@ RegisterCommand('closeInv', function(source)
 end, false)
 
 RegisterCommand('hotbar', function(source)
-    if Player(source).state.inv_busy then return end
+    if IsInventoryServerBusy(source) then return end
     local QBPlayer = QBCore.Functions.GetPlayer(source)
     if not QBPlayer then return end
     if not QBPlayer or QBPlayer.PlayerData.metadata['isdead'] or QBPlayer.PlayerData.metadata['inlaststand'] or QBPlayer.PlayerData.metadata['ishandcuffed'] then return end
@@ -122,16 +121,30 @@ RegisterCommand('hotbar', function(source)
     TriggerClientEvent('qb-inventory:client:hotbar', source, hotbarItems)
 end, false)
 
--- The client used to hand back a bare 'trunk-<plate>' / 'glovebox-<plate>'
--- string and the server opened whatever it was given, so a spoofed callback
--- opened any vehicle on the map from anywhere. The client now also reports the
--- vehicle's network id, and the server resolves that entity itself and checks
--- it is a real vehicle, that the plate matches the name it was handed, and that
--- the player is actually at it.
+-- Vehicle inventory authority.
 --
--- Residual: `class` and `model` are still client-reported and only select slot
--- and weight limits from config/vehicles.lua. They cannot be used to reach a
--- different vehicle, only to overstate one's capacity.
+-- The client is allowed to *request* a vehicle inventory but not to choose its
+-- identity, capacity or session lifetime. The server resolves the networked
+-- vehicle, plate, routing bucket and QBCore shared-vehicle category itself.
+local VEHICLE_CATEGORY_CLASS = {
+    compacts = 0, sedans = 1, suvs = 2, coupes = 3, muscle = 4,
+    sportsclassics = 5, sports = 6, super = 7, motorcycles = 8,
+    offroad = 9, industrial = 10, utility = 11, vans = 12, cycles = 13,
+    boats = 14, helicopters = 15, planes = 16, service = 17,
+    emergency = 18, military = 19, commercial = 20, trains = 21,
+    openwheel = 22,
+}
+
+local VEHICLE_MODEL_OVERRIDES = {}
+for modelName, limits in pairs(VehicleStorage.byModel or {}) do
+    VEHICLE_MODEL_OVERRIDES[joaat(modelName)] = limits
+end
+
+local function TrimPlate(value)
+    if type(value) ~= 'string' then return nil end
+    return value:gsub('^%s+', ''):gsub('%s+$', '')
+end
+
 local function VerifyVehicleInventory(src, inventory, netId)
     if type(inventory) ~= 'string' then return false end
 
@@ -139,72 +152,102 @@ local function VerifyVehicleInventory(src, inventory, netId)
     if not prefix then return false end
 
     netId = tonumber(netId)
-    if not netId then return false end
+    if not netId or netId <= 0 then return false end
 
     local vehicle = NetworkGetEntityFromNetworkId(netId)
     if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return false end
     if GetEntityType(vehicle) ~= 2 then return false end
 
-    -- Plate check where the server build exposes it. Compared trimmed so the
-    -- existing stash identifiers keep resolving unchanged.
+    local playerBucket = GetInventoryRoutingBucket(src)
+    local okBucket, vehicleBucket = pcall(GetEntityRoutingBucket, vehicle)
+    if not okBucket or playerBucket == nil or tonumber(vehicleBucket) ~= playerBucket then
+        return false
+    end
+
+    local claimedPlate = TrimPlate(inventory:gsub('^' .. prefix .. '%-', ''))
+    local actualPlate = nil
     local okPlate, plate = pcall(GetVehicleNumberPlateText, vehicle)
     if okPlate and type(plate) == 'string' and plate ~= '' then
-        local claimed = (inventory:gsub('^' .. prefix .. '%-', '')):gsub('%s+$', '')
-        if claimed ~= (plate:gsub('%s+$', '')) then return false end
+        actualPlate = TrimPlate(plate)
+        if claimedPlate ~= actualPlate then return false end
     end
 
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 then return false end
 
     if prefix == 'glovebox' then
-        -- A glovebox is only reachable from inside the vehicle.
-        local okIn, pedVehicle = pcall(GetVehiclePedIsIn, ped)
-        if okIn and pedVehicle and pedVehicle ~= 0 then
-            return pedVehicle == vehicle
+        local okIn, pedVehicle = pcall(GetVehiclePedIsIn, ped, false)
+        if not okIn or pedVehicle ~= vehicle then return false end
+    elseif #(GetEntityCoords(ped) - GetEntityCoords(vehicle)) > (tonumber(Config.VehicleAccessDistance) or 5.0) then
+        return false
+    end
+
+    return true, vehicle, prefix, actualPlate or claimedPlate
+end
+
+local function ResolveVehicleStorage(vehicle, prefix)
+    local modelHash = GetEntityModel(vehicle)
+    local limits = VEHICLE_MODEL_OVERRIDES[modelHash]
+
+    if not limits then
+        local sharedVehicle = QBCore.Shared.VehicleHashes and QBCore.Shared.VehicleHashes[modelHash]
+        if not sharedVehicle and QBCore.Shared.Vehicles then
+            for modelName, vehicleData in pairs(QBCore.Shared.Vehicles) do
+                if vehicleData and (tonumber(vehicleData.hash) == modelHash or joaat(vehicleData.model or modelName) == modelHash) then
+                    sharedVehicle = vehicleData
+                    break
+                end
+            end
+        end
+
+        if sharedVehicle then
+            local spawnName = type(sharedVehicle.model) == 'string' and sharedVehicle.model:lower() or nil
+            limits = spawnName and VehicleStorage.byModel and VehicleStorage.byModel[spawnName] or nil
+            if not limits then
+                local category = type(sharedVehicle.category) == 'string' and sharedVehicle.category:lower() or nil
+                local class = category and VEHICLE_CATEGORY_CLASS[category] or nil
+                limits = class ~= nil and VehicleStorage[class] or nil
+            end
         end
     end
 
-    return #(GetEntityCoords(ped) - GetEntityCoords(vehicle)) <= 5.0
+    limits = limits or VehicleStorage.default
+    if prefix == 'trunk' then
+        return tonumber(limits.trunkSlots) or VehicleStorage.default.trunkSlots,
+               tonumber(limits.trunkWeight) or VehicleStorage.default.trunkWeight
+    end
+
+    return tonumber(limits.gloveboxSlots) or VehicleStorage.default.gloveboxSlots,
+           tonumber(limits.gloveboxWeight) or VehicleStorage.default.gloveboxWeight
 end
 
 RegisterCommand('inventory', function(source)
-    if Player(source).state.inv_busy then return end
+    if IsInventoryServerBusy(source) then return end
     local QBPlayer = QBCore.Functions.GetPlayer(source)
     if not QBPlayer then return end
     if not QBPlayer or QBPlayer.PlayerData.metadata['isdead'] or QBPlayer.PlayerData.metadata['inlaststand'] or QBPlayer.PlayerData.metadata['ishandcuffed'] then return end
-    QBCore.Functions.TriggerClientCallback('qb-inventory:client:vehicleCheck', source, function(inventory, class, model, netId)
+    QBCore.Functions.TriggerClientCallback('qb-inventory:client:vehicleCheck', source, function(inventory, _, _, netId)
         if not inventory then return OpenInventory(source) end
 
-        if not VerifyVehicleInventory(source, inventory, netId) then
+        local verified, vehicle, prefix, plate = VerifyVehicleInventory(source, inventory, netId)
+        if not verified then
             LogInventoryAccessDenied(source, inventory, 'vehicle-verify-failed')
+            TriggerClientEvent('qb-inventory:client:closeInv', source)
             return
         end
 
-        if inventory:find('trunk-') then
-            local slots = (VehicleStorage.byModel[model] and VehicleStorage.byModel[model].trunkSlots) or
-                        (VehicleStorage[class] and VehicleStorage[class].trunkSlots) or
-                        VehicleStorage.default.slots
-            local maxweight = (VehicleStorage.byModel[model] and VehicleStorage.byModel[model].trunkWeight) or
-                              (VehicleStorage[class] and VehicleStorage[class].trunkWeight) or
-                              VehicleStorage.default.maxWeight
-
-            OpenInventory(source, inventory, {
-                slots = slots,
-                maxweight = maxweight
-            })
-            return
-        elseif inventory:find('glovebox-') then
-            local slots = (VehicleStorage.byModel[model] and VehicleStorage.byModel[model].gloveboxSlots) or
-                        (VehicleStorage[class] and VehicleStorage[class].gloveboxSlots) or
-                        VehicleStorage.default.slots
-            local maxweight = (VehicleStorage.byModel[model] and VehicleStorage.byModel[model].gloveboxWeight) or
-                              (VehicleStorage[class] and VehicleStorage[class].gloveboxWeight) or
-                              VehicleStorage.default.maxWeight
-            OpenInventory(source, inventory, {
-                slots = slots,
-                maxweight = maxweight
-            })
-            return
-        end
+        local slots, maxweight = ResolveVehicleStorage(vehicle, prefix)
+        OpenInventory(source, inventory, {
+            slots = slots,
+            maxweight = maxweight,
+            sessionKind = 'vehicle',
+            sessionContext = {
+                netId = tonumber(netId),
+                prefix = prefix,
+                plate = plate,
+                bucket = GetInventoryRoutingBucket(source),
+                accessDistance = Config.VehicleAccessDistance,
+            }
+        })
     end)
 end, false)

@@ -1,0 +1,15 @@
+RS Punk qb-inventory v3.0.5 - optional distribution cleanup
+
+The active runtime is html/index.html + html/main.css + html/app.js.
+The following supplied files are not referenced by fxmanifest.lua or the active NUI and may be removed from a public release after you confirm you no longer need them as source/reference material:
+
+- html/ui.html
+- html/css/
+- html/js/
+- html/font/desktop.ini
+- html/font/TT-Medium.otf
+
+Why TT-Medium.otf is called out:
+Its embedded font metadata identifies it as TT Commons / TypeType with "All rights reserved." v3.0.5 does not reference or pack it; the active Punk UI uses the bundled Poppins and Quantico OFL fonts instead.
+
+This cleanup list is intentionally advisory rather than an automatic deletion so the changed-files-only patch never erases your original UI/source material.

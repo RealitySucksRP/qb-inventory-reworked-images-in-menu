@@ -9,8 +9,16 @@
 
 local cashSyncBusy = {}
 local cashState = {}
+local cashStateRequestAt = {}
 local warnedMissingCashItem = false
 local CASH_DRIFT_INTERVAL = 5000
+local CASH_STATE_REQUEST_INTERVAL = 1000
+
+local function CashItemName()
+    local name = Config.CashItemName
+    if type(name) ~= 'string' or name == '' then name = 'cash' end
+    return name:lower()
+end
 
 local function NormalizeCashAmount(value)
     value = tonumber(value) or 0
@@ -30,7 +38,7 @@ local function GetPlayerCashItemCount(Player)
     local items = Player and Player.PlayerData and Player.PlayerData.items or {}
 
     for _, item in pairs(items) do
-        if item and tostring(item.name):lower() == 'cash' then
+        if item and tostring(item.name):lower() == CashItemName() then
             total = total + NormalizeCashAmount(item.amount or item.count)
         end
     end
@@ -39,10 +47,10 @@ local function GetPlayerCashItemCount(Player)
 end
 
 local function CashItemExists()
-    local exists = QBCore.Shared and QBCore.Shared.Items and QBCore.Shared.Items['cash'] ~= nil
+    local exists = QBCore.Shared and QBCore.Shared.Items and QBCore.Shared.Items[CashItemName()] ~= nil
     if Config.CashAsItem and not exists and not warnedMissingCashItem then
         warnedMissingCashItem = true
-        print('^1[qb-inventory] CashAsItem is enabled, but qb-core/shared/items.lua has no `cash` item. Physical cash cannot be synchronized.^7')
+        print('^1[qb-inventory] CashAsItem is enabled, but qb-core/shared/items.lua has no configured cash item. Physical cash cannot be synchronized.^7')
     end
     return exists
 end
@@ -105,7 +113,7 @@ local function FindFirstFreeSlot(items)
 end
 
 local function BuildCashItem(slot, amount, existingInfo)
-    local itemInfo = QBCore.Shared.Items['cash']
+    local itemInfo = QBCore.Shared.Items[CashItemName()]
     return {
         name = itemInfo.name or 'cash',
         amount = NormalizeCashAmount(amount),
@@ -139,7 +147,7 @@ local function SetPhysicalCashTotal(source, target, reason)
     local cashSlots = {}
 
     for slot, item in pairs(items) do
-        if item and tostring(item.name):lower() == 'cash' then
+        if item and tostring(item.name):lower() == CashItemName() then
             cashSlots[#cashSlots + 1] = tonumber(slot) or tonumber(item.slot)
         end
     end
@@ -175,7 +183,7 @@ local function SetPhysicalCashTotal(source, target, reason)
 
     local delta = target - previous
     if delta ~= 0 then
-        TriggerClientEvent('qb-inventory:client:ItemBox', source, QBCore.Shared.Items['cash'], delta > 0 and 'add' or 'remove', math.abs(delta))
+        TriggerClientEvent('qb-inventory:client:ItemBox', source, QBCore.Shared.Items[CashItemName()], delta > 0 and 'add' or 'remove', math.abs(delta))
     end
 
     PushInventoryAndCash(source, Player, target)
@@ -332,6 +340,12 @@ end)
 RegisterNetEvent('qb-inventory:server:requestCashState', function()
     local source = tonumber(source)
     if not source or not Config.CashAsItem then return end
+
+    local now = GetGameTimer()
+    local last = cashStateRequestAt[source]
+    if last and (now - last) < CASH_STATE_REQUEST_INTERVAL then return end
+    cashStateRequestAt[source] = now
+
     RSInventoryReconcileCashOnLoad(source, 'client-cash-state-request')
 end)
 
@@ -340,6 +354,7 @@ local function ClearCashState(playerOrSource)
     if source then
         cashSyncBusy[source] = nil
         cashState[source] = nil
+        cashStateRequestAt[source] = nil
     end
 end
 

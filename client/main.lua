@@ -24,6 +24,8 @@ local lastSlotUse = {}
 local SLOT_USE_DEBOUNCE_MS = 450
 local pendingInventoryOperations = {}
 local inventoryOperationCounter = 0
+local inventoryOpen = false
+local currentInventoryName = ''
 
 
 local function RequestAuthoritativeCashState()
@@ -49,17 +51,31 @@ local function ToggleHUD(show)
         print(('[qb-inventory] CustomHUD export failed: %s:%s -> %s'):format(tostring(resourceName), tostring(exportName), tostring(err)))
     end
 end
+
+local function ForceCloseInventoryUI()
+    inventoryOpen = false
+    currentInventoryName = ''
+    if CloseTrunk then CloseTrunk() end
+    ToggleHUD(true)
+    SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
+    TriggerScreenblurFadeOut(0)
+    SendNUIMessage({ action = 'forceClose' })
+    CurrentDrop = nil
+end
+
 -- Handlers
 
 RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
-    LocalPlayer.state:set('inv_busy', false, true)
+    -- inv_busy is server-owned. Client player-state writes fail under Cfx
+    -- sv_stateBagStrictMode and are unnecessary for an authoritative inventory.
     PlayerData = QBCore.Functions.GetPlayerData()
     GetDrops()
     RequestAuthoritativeCashState()
 end)
 
 RegisterNetEvent('QBCore:Client:OnPlayerUnload', function()
-    LocalPlayer.state:set('inv_busy', true, true)
+    ForceCloseInventoryUI()
     PlayerData = nil
 
     for requestId, finish in pairs(pendingInventoryOperations) do
@@ -74,6 +90,11 @@ end)
 
 RegisterNetEvent('QBCore:Player:SetPlayerData', function(val)
     PlayerData = val
+    local metadata = val and val.metadata or {}
+    if inventoryOpen and (metadata.isdead or metadata.inlaststand or metadata.ishandcuffed) then
+        TriggerServerEvent('qb-inventory:server:closeInventory', currentInventoryName)
+        ForceCloseInventoryUI()
+    end
 end)
 RegisterNetEvent('QBCore:Player:UpdatePlayerDataField', function(key, val)
     if not PlayerData then
@@ -82,14 +103,29 @@ RegisterNetEvent('QBCore:Player:UpdatePlayerDataField', function(key, val)
 
     if key and val ~= nil then
         PlayerData[key] = val
+        if key == 'metadata' and inventoryOpen and type(val) == 'table' and
+            (val.isdead or val.inlaststand or val.ishandcuffed) then
+            TriggerServerEvent('qb-inventory:server:closeInventory', currentInventoryName)
+            ForceCloseInventoryUI()
+        end
     end
 end)
 
 
 AddEventHandler('onResourceStart', function(resourceName)
     if resourceName == GetCurrentResourceName() then
+        ForceCloseInventoryUI()
         PlayerData = QBCore.Functions.GetPlayerData()
         RequestAuthoritativeCashState()
+    end
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+    ForceCloseInventoryUI()
+    for requestId, finish in pairs(pendingInventoryOperations) do
+        pendingInventoryOperations[requestId] = nil
+        finish(false)
     end
 end)
 
@@ -98,6 +134,16 @@ RegisterNetEvent('qb-inventory:client:sendServerTime', function(serverTime)
         action = 'setServerTime',
         serverTime = serverTime
     })
+end)
+
+-- CashAsItem keeps the server/framework account authoritative. This event only
+-- refreshes the local QBCore cache so scripts/UI reading PlayerData.money.cash
+-- do not wait for the next full player-data update.
+RegisterNetEvent('qb-inventory:client:updateCash', function(amount)
+    amount = math.max(0, math.floor(tonumber(amount) or 0))
+    if not PlayerData then PlayerData = QBCore.Functions.GetPlayerData() end
+    PlayerData.money = PlayerData.money or {}
+    PlayerData.money.cash = amount
 end)
 
 -- Functions
@@ -472,10 +518,7 @@ RegisterNetEvent('qb-inventory:client:hotbar', function(items)
 end)
 
 RegisterNetEvent('qb-inventory:client:closeInv', function()
-    ToggleHUD(true)
-    SendNUIMessage({
-        action = 'close',
-    })
+    ForceCloseInventoryUI()
 end)
 
 local function PushAuthoritativeInventory(items)
@@ -531,6 +574,8 @@ RegisterNetEvent('qb-inventory:client:ItemBox', function(itemData, type, amount)
 end)
 
 RegisterNetEvent('qb-inventory:client:openInventory', function(items, other)
+    inventoryOpen = true
+    currentInventoryName = (type(other) == 'table' and type(other.name) == 'string') and other.name or ''
     ToggleHUD(false)
     SetNuiFocus(true, true)
     SendNUIMessage({
@@ -562,22 +607,15 @@ RegisterNUICallback('AttemptPurchase', function(data, cb)
 end)
 
 RegisterNUICallback('CloseInventory', function(data, cb)
-    ToggleHUD(true)
-    SetNuiFocus(false, false)
-    TriggerScreenblurFadeOut(250)
-
     local inventoryName = data and data.name or nil
-    if inventoryName and inventoryName:find('trunk-') then
-        CloseTrunk()
+    if (not inventoryName or inventoryName == '') and currentInventoryName ~= '' then
+        inventoryName = currentInventoryName
     end
-    if not inventoryName and CurrentDrop then
-        inventoryName = CurrentDrop
-    end
+    if inventoryName and inventoryName:find('^trunk%-') then CloseTrunk() end
+    if (not inventoryName or inventoryName == '') and CurrentDrop then inventoryName = CurrentDrop end
 
-    -- Always close the server-side session. Player-only inventory has no
-    -- secondary name, but still sets inv_busy on the server.
-    TriggerServerEvent('qb-inventory:server:closeInventory', inventoryName)
-    CurrentDrop = nil
+    TriggerServerEvent('qb-inventory:server:closeInventory', inventoryName or '')
+    ForceCloseInventoryUI()
     cb('ok')
 end)
 
@@ -784,10 +822,21 @@ CreateThread(function()
     exports['qb-target']:AddTargetModel(Config.VendingObjects, {
         options = {
             {
-                type = 'server',
-                event = 'qb-inventory:server:openVending',
                 icon = 'fa-solid fa-cash-register',
                 label = Lang:t('menu.vending'),
+                action = function(entity)
+                    if not entity or entity == 0 or not DoesEntityExist(entity) then return end
+                    local coords = GetEntityCoords(entity)
+                    local netId = 0
+                    if NetworkGetEntityIsNetworked(entity) then
+                        netId = NetworkGetNetworkIdFromEntity(entity)
+                    end
+                    TriggerServerEvent('qb-inventory:server:openVending', {
+                        model = GetEntityModel(entity),
+                        netId = netId,
+                        coords = { x = coords.x, y = coords.y, z = coords.z }
+                    })
+                end,
             },
         },
         distance = 2.5
@@ -917,6 +966,7 @@ RegisterNetEvent('robbery:client:startRobberyProgress', function(targetServerId)
         TriggerServerEvent('qb-inventory:server:robPlayer', targetServerId)
     end, function()
         StopAnimTask(PlayerPedId(), 'random@arrests', 'busted_search', 1.0)
+        TriggerServerEvent('robbery:server:cancelRobbery', targetServerId)
         QBCore.Functions.Notify('Action canceled', 'error')
     end)
 end)

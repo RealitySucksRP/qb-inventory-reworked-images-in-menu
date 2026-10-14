@@ -2,10 +2,11 @@ fx_version 'cerulean'
 game 'gta5'
 
 author 'Kakarot / RealitySucksRP'
-description 'RS Punk UI qb-inventory with 3.0.4 death-cash protection, 3.0.3 structural fixes, server-authoritative sessions, hardened transfers, cash-as-item support, weapon attachments, drops, and HUD compatibility.'
-version '3.0.4-rs-punk'
+description 'RS Punk UI qb-inventory with QBCore production guards, server-authoritative sessions, cash-as-item support, weapon attachments, drops, and HUD compatibility.'
+version '3.0.5-rs-punk-production-guard'
 
 dependencies {
+    '/onesync',
     'qb-core',
     'qb-weapons',
     'oxmysql',
@@ -43,7 +44,7 @@ files {
     'html/main.css',
     'html/app.js',
 
-    -- Local runtime dependencies from the 3.0.2 update.
+    -- All browser runtime dependencies are local. No CDN is required by the active UI.
     'html/vendor/*.js',
     'html/vendor/*.css',
     'html/vendor/fontawesome/css/*.css',
@@ -51,11 +52,15 @@ files {
 
     -- Preserve the RS Punk UI artwork/theme exactly as supplied.
     'html/*.png',
-    'html/images/*.*',
     'html/dark/*.png',
     'html/dark/*.svg',
     'html/font/*.ttf',
-    'html/font/*.otf'
+
+    -- Item art formats actually present in this package. Keep this explicit so
+    -- non-runtime files inside html/images are not packed by the resource.
+    'html/images/*.png',
+    'html/images/*.PNG',
+    'html/images/*.webp'
 }
 
 exports {

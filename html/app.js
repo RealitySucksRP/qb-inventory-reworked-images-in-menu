@@ -1032,16 +1032,30 @@ const InventoryContainer = Vue.createApp({
             if (!info || typeof info !== "object" || !info.tint) return null;
             return info.rsws_tint_label || `Tint #${info.tint}`;
         },
+        escapeHtml(value) {
+            return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#039;",
+            })[char]);
+        },
         generateTooltipContent(item) {
             if (!item) {
                 return "";
             }
-            let content = `<div class="custom-tooltip"><div class="tooltip-header">${item.label}</div><hr class="tooltip-divider">`;
-            const description = item.info && item.info.description ? item.info.description.replace(/\n/g, "<br>") : item.description ? item.description.replace(/\n/g, "<br>") : "No description available.";
+
+            const safeLabel = this.escapeHtml(item.label || item.name || "Item");
+            let content = `<div class="custom-tooltip"><div class="tooltip-header">${safeLabel}</div><hr class="tooltip-divider">`;
+            const rawDescription = item.info && item.info.description
+                ? item.info.description
+                : item.description || "No description available.";
+            const description = this.escapeHtml(rawDescription).replace(/\n/g, "<br>");
 
             if (item.info && item.info.expiryDate) {
                 const expired = this.isItemExpired(item);
-                const expiryText = this.getExpiryText(item);
+                const expiryText = this.escapeHtml(this.getExpiryText(item));
                 content += `<div class="tooltip-info"><span class="tooltip-info-key">Freshness:</span> ${expired ? "Expired" : expiryText}</div>`;
             }
 
@@ -1050,9 +1064,11 @@ const InventoryContainer = Vue.createApp({
                     if (key !== "description" && key !== "creationDate" && key !== "expiryDate") {
                         let valueStr = value;
                         if (key === "attachments") {
-                            valueStr = Object.keys(value).length > 0 ? "true" : "false";
+                            valueStr = value && typeof value === "object" && Object.keys(value).length > 0 ? "true" : "false";
                         }
-                        content += `<div class="tooltip-info"><span class="tooltip-info-key">${this.formatKey(key)}:</span> ${valueStr}</div>`;
+                        const safeKey = this.escapeHtml(this.formatKey(String(key)));
+                        const safeValue = this.escapeHtml(valueStr);
+                        content += `<div class="tooltip-info"><span class="tooltip-info-key">${safeKey}:</span> ${safeValue}</div>`;
                     }
                 }
             }
@@ -1175,6 +1191,12 @@ const InventoryContainer = Vue.createApp({
                     break;
                 case "close":
                     this.closeInventory();
+                    break;
+                case "forceClose":
+                    // Lua/server initiated cleanup must not POST CloseInventory back
+                    // into a possibly newer server session. Reset the browser only.
+                    this.clearDragData();
+                    Object.assign(this, this.getInitialState());
                     break;
                 case "update":
                     this.updateInventory(event.data);

@@ -1,4 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@300;400;500;600&display=swap');
+/* Bundled font aliases: keep the Punk typography self-contained in NUI. */
+@font-face { font-family: 'Rajdhani'; src: url('font/Quantico-Bold.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Rajdhani'; src: url('font/Quantico-Bold.ttf') format('truetype'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Rajdhani'; src: url('font/Quantico-Bold.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Rajdhani'; src: url('font/Quantico-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Exo 2'; src: url('font/Poppins-Light.ttf') format('truetype'); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Exo 2'; src: url('font/Poppins-Light.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Exo 2'; src: url('font/Poppins-Light.ttf') format('truetype'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Exo 2'; src: url('font/Poppins-Light.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Creepster'; src: url('font/Quantico-Bold.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Share Tech Mono'; src: url('font/Quantico-Bold.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
 
 /* =====================================================
    RS DUNGEON INVENTORY THEME

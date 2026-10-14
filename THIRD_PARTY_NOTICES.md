@@ -7,5 +7,11 @@ This distribution includes locally bundled browser libraries. Their upstream lic
 - Floating Vue 5.2.2 - MIT License.
 - Floating UI Core/DOM - MIT License.
 - Font Awesome Free 6.7.2 - icons CC BY 4.0, fonts SIL OFL 1.1, code MIT.
+- Poppins - SIL Open Font License 1.1 (license metadata is embedded in `Poppins-Light.ttf`).
+- Quantico - SIL Open Font License 1.1 (license metadata is embedded in `Quantico-Bold.ttf`).
 
-Existing RS Punk fonts/art remain as supplied in the Punk resource.
+The active Punk NUI in v3.0.5 uses the bundled Poppins/Quantico files and no longer depends on Google Fonts at runtime.
+
+`html/font/TT-Medium.otf` identifies itself in its embedded metadata as TT Commons / TypeType with "All rights reserved." It is not referenced by the active v3.0.5 UI and is not included by the resource manifest. Confirm that you have redistribution rights or remove that unused file before publishing a public/Tebex package.
+
+Existing RS Punk artwork and item images remain as supplied. Presence in the package is not proof of redistribution rights; public publishers should review their provenance before distribution.

@@ -29,6 +29,19 @@ local ALLOW_LEGACY_CLIENT_ITEM_EVENTS = false
 -- 'otherplayer' is never honoured from a client even when this is true: the
 -- robbery flow is the only legitimate way to reach another player's inventory.
 local ALLOW_LEGACY_CLIENT_OPEN_EVENTS = false
+local legacyAttemptLogAt = {}
+local LEGACY_LOG_INTERVAL_MS = 5000
+
+local function ShouldLogLegacyAttempt(src, action)
+    src = tonumber(src) or 0
+    local key = tostring(src) .. ':' .. tostring(action)
+    local now = GetGameTimer()
+    if legacyAttemptLogAt[key] and (now - legacyAttemptLogAt[key]) < LEGACY_LOG_INTERVAL_MS then
+        return false
+    end
+    legacyAttemptLogAt[key] = now
+    return true
+end
 
 local function ResolvePlayerName(src)
     if not src or src == 0 then return 'unknown' end
@@ -48,6 +61,7 @@ local function ResolvePlayerName(src)
 end
 
 local function LogLegacyItemAttempt(action, src, item, amount, allowed)
+    if not ShouldLogLegacyAttempt(src, 'item-' .. tostring(action) .. '-' .. tostring(allowed)) then return end
     local line = ('[qb-inventory] %s legacy client item event: %s | source=%s (%s) | item=%s | amount=%s')
         :format(allowed and 'ALLOWED' or 'BLOCKED',
                 tostring(action), tostring(src), ResolvePlayerName(src),
@@ -103,6 +117,7 @@ local function HandleLegacyItemEvent(action, src, item, amount, slot, info)
 end
 
 local function LogLegacyOpenAttempt(src, name, detail)
+    if not ShouldLogLegacyAttempt(src, 'open-' .. tostring(detail)) then return end
     local line = ('[qb-inventory] BLOCKED legacy client open event: source=%s (%s) | name=%s | detail=%s')
         :format(tostring(src), ResolvePlayerName(src), tostring(name), tostring(detail))
 

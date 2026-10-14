@@ -22,28 +22,49 @@ function GetFirstFreeSlot(items, maxSlots)
     return nil
 end
 
+local function IsReservedInventoryIdentifier(identifier)
+    if type(identifier) ~= 'string' or identifier == '' then return true end
+    if identifier == 'player' then return true end
+    return identifier:find('^otherplayer%-') ~= nil or
+        identifier:find('^shop%-') ~= nil or
+        identifier:find('^drop%-') ~= nil or
+        identifier:find('^trunk%-') ~= nil or
+        identifier:find('^glovebox%-') ~= nil
+end
+
 local function SetupShopItems(shopItems)
     local items = {}
     local slot = 1
-    if shopItems and next(shopItems) then
-        for _, item in pairs(shopItems) do
+    if type(shopItems) ~= 'table' then return items end
+
+    for _, item in pairs(shopItems) do
+        if type(item) == 'table' and type(item.name) == 'string' and item.name ~= '' then
             local itemInfo = QBCore.Shared.Items[item.name:lower()]
-            if itemInfo then
+            local amount = tonumber(item.amount)
+            local price = tonumber(item.price)
+            local validAmount = amount and amount == math.floor(amount) and amount >= 0
+                and amount ~= math.huge and amount ~= -math.huge
+            local validPrice = price and price >= 0 and price ~= math.huge and price ~= -math.huge
+
+            if itemInfo and validAmount and validPrice then
                 items[slot] = {
-                    name = itemInfo['name'],
-                    amount = tonumber(item.amount),
-                    info = item.info or {},
-                    label = itemInfo['label'],
-                    description = itemInfo['description'] or '',
-                    weight = itemInfo['weight'],
-                    type = itemInfo['type'],
-                    unique = itemInfo['unique'],
-                    useable = itemInfo['useable'],
-                    price = item.price,
-                    image = itemInfo['image'],
+                    name = itemInfo.name,
+                    amount = amount,
+                    info = type(item.info) == 'table' and item.info or {},
+                    label = itemInfo.label,
+                    description = itemInfo.description or '',
+                    weight = itemInfo.weight,
+                    type = itemInfo.type,
+                    unique = itemInfo.unique,
+                    useable = itemInfo.useable,
+                    price = price,
+                    image = itemInfo.image,
                     slot = slot,
                 }
                 slot = slot + 1
+            else
+                print(('[qb-inventory] Ignored invalid shop item definition name=%s amount=%s price=%s'):format(
+                    tostring(item.name), tostring(item.amount), tostring(item.price)))
             end
         end
     end
@@ -54,56 +75,40 @@ end
 
 function LoadInventory(source, citizenid)
     local inventory = MySQL.prepare.await('SELECT inventory FROM players WHERE citizenid = ?', { citizenid })
-    local loadedInventory = {}
-    local missingItems = {}
-    inventory = json.decode(inventory)
-    if not inventory or not next(inventory) then return loadedInventory end
+    if not inventory or inventory == '' then return {} end
 
-    for _, item in pairs(inventory) do
-        if item then
-            local itemInfo = QBCore.Shared.Items[item.name:lower()]
-
-            if itemInfo then
-                loadedInventory[item.slot] = {
-                    name = itemInfo['name'],
-                    amount = item.amount,
-                    info = item.info or '',
-                    label = itemInfo['label'],
-                    description = itemInfo['description'] or '',
-                    weight = itemInfo['weight'],
-                    type = itemInfo['type'],
-                    unique = itemInfo['unique'],
-                    useable = itemInfo['useable'],
-                    image = itemInfo['image'],
-                    shouldClose = itemInfo['shouldClose'],
-                    slot = item.slot,
-                    combinable = itemInfo['combinable']
-                }
-            else
-                missingItems[#missingItems + 1] = item.name:lower()
-            end
-        end
+    local ok, decoded = pcall(json.decode, inventory)
+    if not ok or type(decoded) ~= 'table' then
+        print(('Invalid inventory JSON for player %s; loading an empty inventory rather than propagating corrupt data.'):format(
+            source and GetPlayerName(source) or citizenid))
+        return {}
     end
 
-    if #missingItems > 0 then
-        print(('The following items were removed for player %s as they no longer exist: %s'):format(source and GetPlayerName(source) or citizenid, table.concat(missingItems, ', ')))
+    local loadedInventory, rejected = SanitizeInventory(decoded, Config.MaxSlots)
+    if rejected and #rejected > 0 then
+        print(('The following invalid/missing inventory entries were removed for player %s: %s'):format(
+            source and GetPlayerName(source) or citizenid, table.concat(rejected, ', ')))
     end
-
     return loadedInventory
 end
 exports('LoadInventory', LoadInventory)
 
 function SaveInventory(source, offline)
     if Config.Debug then
-        print(('[qb-inventory] Save Inventory data for: %s (%s)'):format(GetPlayerName(source), source))
+        local debugName = offline and 'offline' or GetPlayerName(source)
+        print(('[qb-inventory] Save Inventory data for: %s (%s)'):format(tostring(debugName), tostring(source)))
     end
+
     local PlayerData
     if offline then
         PlayerData = source
     else
         local Player = QBCore.Functions.GetPlayer(source)
-        if not Player then return end
+        if not Player then return false end
         PlayerData = Player.PlayerData
+    end
+    if type(PlayerData) ~= 'table' or type(PlayerData.citizenid) ~= 'string' or PlayerData.citizenid == '' then
+        return false
     end
 
     local items = PlayerData.items
@@ -121,12 +126,82 @@ function SaveInventory(source, offline)
                 }
             end
         end
-        MySQL.prepare.await('UPDATE players SET inventory = ? WHERE citizenid = ?', { json.encode(ItemsJson), PlayerData.citizenid })
-    else
-        MySQL.prepare.await('UPDATE players SET inventory = ? WHERE citizenid = ?', { '[]', PlayerData.citizenid })
     end
+
+    local payload = next(ItemsJson) and json.encode(ItemsJson) or '[]'
+    local ok, err = pcall(function()
+        MySQL.prepare.await('UPDATE players SET inventory = ? WHERE citizenid = ?', { payload, PlayerData.citizenid })
+    end)
+    if not ok then
+        print(('[qb-inventory] Failed saving player inventory citizenid=%s source=%s: %s')
+            :format(tostring(PlayerData.citizenid), tostring(PlayerData.source or source), tostring(err)))
+        return false
+    end
+    return true
 end
 exports('SaveInventory', SaveInventory)
+
+-- Cached stash/vehicle inventories used to persist only when the UI closed.
+-- A resource restart/crash after the player's inventory save but before that
+-- close could therefore duplicate or lose the opposite side of a transfer.
+-- Mark non-player inventories dirty on every mutation and debounce the DB write.
+local dirtyInventories = {}
+local stashSaveVersions = {}
+local STASH_SAVE_DELAY = tonumber(Config and Config.StashSaveDelayMs) or 500
+
+function SaveStashInventory(identifier)
+    if type(identifier) ~= 'string' or identifier == '' then return false end
+    local inventory = Inventories[identifier]
+    if not inventory then return false end
+
+    local version = stashSaveVersions[identifier]
+    local ok, err = pcall(function()
+        MySQL.prepare.await(
+            'INSERT INTO inventories (identifier, items) VALUES (?, ?) ON DUPLICATE KEY UPDATE items = ?',
+            {identifier, json.encode(inventory.items or {}), json.encode(inventory.items or {})}
+        )
+    end)
+
+    if ok then
+        if version == stashSaveVersions[identifier] then
+            dirtyInventories[identifier] = nil
+        end
+        return true
+    end
+
+    print(('[qb-inventory] Failed saving inventory %s: %s'):format(identifier, tostring(err)))
+    return false
+end
+exports('SaveStashInventory', SaveStashInventory)
+
+function ScheduleInventorySave(identifier)
+    if type(identifier) ~= 'string' or not Inventories[identifier] then return end
+    stashSaveVersions[identifier] = (stashSaveVersions[identifier] or 0) + 1
+    local version = stashSaveVersions[identifier]
+    dirtyInventories[identifier] = true
+
+    SetTimeout(STASH_SAVE_DELAY, function()
+        if stashSaveVersions[identifier] ~= version or not dirtyInventories[identifier] then return end
+        if not Inventories[identifier] then return end
+        SaveStashInventory(identifier)
+    end)
+end
+
+function FlushDirtyInventories()
+    local pending = {}
+    for identifier in pairs(dirtyInventories) do pending[#pending + 1] = identifier end
+    for _, identifier in ipairs(pending) do
+        if Inventories[identifier] then SaveStashInventory(identifier) end
+    end
+end
+exports('FlushDirtyInventories', FlushDirtyInventories)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+    -- Best-effort synchronous flush of only inventories changed since their last
+    -- successful write. This makes a normal `restart qb-inventory` deterministic.
+    FlushDirtyInventories()
+end)
 
 -- SERVER OWNER COMPATIBILITY NOTE:
 -- CashAsItem makes framework cash operations inventory operations. Any external
@@ -224,14 +299,28 @@ local PreserveCashInReplacementInventory
 function SetInventory(identifier, items, reason)
     local player = QBCore.Functions.GetPlayer(identifier)
     if not player and not Inventories[identifier] and not Drops[identifier] then
-        print('SetInventory: Inventory not found for ' .. identifier)
-        return
+        print('SetInventory: Inventory not found for ' .. tostring(identifier))
+        return false
     end
+    if type(items) ~= 'table' then return false end
+
+    local maxSlots = player and Config.MaxSlots or
+        (Inventories[identifier] and (Inventories[identifier].slots or Config.StashSize.slots)) or
+        (Drops[identifier] and (Drops[identifier].slots or Config.DropSize.slots))
 
     if player then
         items = PreserveCashInReplacementInventory(player, items)
         if not items then return false end
+    end
 
+    local sanitized, rejected = SanitizeInventory(items, maxSlots)
+    if rejected and #rejected > 0 then
+        print(('[qb-inventory] SetInventory rejected malformed/unknown entries inventory=%s entries=%s')
+            :format(tostring(identifier), table.concat(rejected, ', ')))
+    end
+    items = sanitized
+
+    if player then
         player.Functions.SetPlayerData('items', items)
         ScheduleSave(identifier)
         if Config.CashAsItem and RSInventorySetCashAccountFromItem then
@@ -246,6 +335,7 @@ function SetInventory(identifier, items, reason)
         Drops[identifier].items = items
     elseif Inventories[identifier] then
         Inventories[identifier].items = items
+        ScheduleInventorySave(identifier)
     end
 
     local invName = player and GetPlayerName(identifier) .. ' (' .. identifier .. ')' or identifier
@@ -271,6 +361,7 @@ function SetItemData(source, itemName, key, val, slot)
     item[key] = val
     Player.PlayerData.items[item.slot] = item
     Player.Functions.SetPlayerData('items', Player.PlayerData.items)
+    ScheduleSave(source)
     return true
 end
 
@@ -318,14 +409,21 @@ end
 exports('GetItemBySlot', GetItemBySlot)
 
 function GetTotalWeight(items)
-    if not items then return 0 end
+    if type(items) ~= 'table' then return 0 end
     local weight = 0
     for _, item in pairs(items) do
-        if item and item.weight and item.amount then
-            weight = weight + (item.weight * item.amount)
+        if type(item) == 'table' then
+            local amount = tonumber(item.amount or item.count)
+            if amount and amount > 0 then
+                local itemInfo = type(item.name) == 'string' and QBCore.Shared.Items[item.name:lower()] or nil
+                local unitWeight = itemInfo and tonumber(itemInfo.weight) or tonumber(item.weight)
+                if unitWeight and unitWeight > 0 then
+                    weight = weight + (unitWeight * amount)
+                end
+            end
         end
     end
-    return tonumber(weight)
+    return tonumber(weight) or 0
 end
 exports('GetTotalWeight', GetTotalWeight)
 
@@ -646,7 +744,7 @@ function CloseInventory(source, identifier)
     if not identifier and session then identifier = session.name end
 
     if type(identifier) == 'string' then
-        local targetId = tonumber(identifier:match('^otherplayer%-(.+)'))
+        local targetId = tonumber(identifier:match('^otherplayer%-(%d+)$'))
         if targetId and QBCore.Functions.GetPlayer(targetId) then
             Player(targetId).state.inv_busy = false
         elseif Drops[identifier] then
@@ -655,10 +753,11 @@ function CloseInventory(source, identifier)
             end
         elseif Inventories[identifier] and Inventories[identifier].isOpen == source then
             Inventories[identifier].isOpen = false
+            SaveStashInventory(identifier)
         end
     end
 
-    ClearInventorySession(source)
+    CleanupInventorySession(source, true)
     if QBCore.Functions.GetPlayer(source) then
         Player(source).state.inv_busy = false
     end
@@ -674,16 +773,31 @@ function OpenInventoryById(source, targetId)
     local QBPlayer = QBCore.Functions.GetPlayer(source)
     local TargetPlayer = QBCore.Functions.GetPlayer(targetId)
     if not QBPlayer or not TargetPlayer then return false end
-    if Player(source).state.inv_busy or Player(targetId).state.inv_busy then
+
+    -- The stock QBCore admin menu calls this export server-side and expects to
+    -- inspect a player remotely. Client/robbery calls arrive with no invoking
+    -- server resource and remain subject to bucket + distance validation.
+    local invokingResource = GetInvokingResource()
+    local trustedRemote = type(invokingResource) == 'string' and invokingResource ~= '' and
+                              invokingResource ~= GetCurrentResourceName()
+    if not trustedRemote and SameInventoryRoutingBucket and
+        not SameInventoryRoutingBucket(source, targetId) then
+        return false
+    end
+    if IsInventoryServerBusy(source) or IsInventoryServerBusy(targetId) then
         return false
     end
 
-    -- Lock both participants before exposing the target inventory. This closes
-    -- the two-robber race where multiple callers could pass the busy check
-    -- during the old 1.5 second wait.
+    -- Acquire the server-only victim lock before exposing the target inventory.
+    -- Replicated inv_busy is compatibility/UI state only and is never trusted as
+    -- the mutual-exclusion primitive.
+    if not SetInventorySession(source, 'otherplayer-' .. targetId,
+                               trustedRemote and 'trusted-otherplayer' or 'otherplayer',
+                               { trustedRemote = trustedRemote }) then
+        return false
+    end
     Player(source).state.inv_busy = true
     Player(targetId).state.inv_busy = true
-    SetInventorySession(source, 'otherplayer-' .. targetId, 'player')
 
     local formattedInventory = {
         name = 'otherplayer-' .. targetId,
@@ -703,53 +817,66 @@ function ClearStash(identifier)
     local inventory = Inventories[identifier]
     if not inventory then return end
     inventory.items = {}
-    MySQL.prepare('UPDATE inventories SET items = ? WHERE identifier = ?', { json.encode(inventory.items), identifier })
+    ScheduleInventorySave(identifier)
+    SaveStashInventory(identifier)
 end
 exports('ClearStash', ClearStash)
 
 function CreateShop(shopData)
+    if type(shopData) ~= 'table' then return false end
+
     if shopData.name then
+        if type(shopData.name) ~= 'string' or shopData.name == '' then return false end
+        local items = SetupShopItems(shopData.items)
         RegisteredShops[shopData.name] = {
             name = shopData.name,
             label = shopData.label,
             coords = shopData.coords,
-            slots = #shopData.items,
-            items = SetupShopItems(shopData.items)
+            bucket = shopData.bucket,
+            slots = #items,
+            items = items
         }
-    else
-        for key, data in pairs(shopData) do
-            if type(data) == 'table' then
-                if data.name then
-                    local shopName = type(key) == 'number' and data.name or key
+        return true
+    end
+
+    for key, data in pairs(shopData) do
+        if type(data) == 'table' then
+            if data.name then
+                local shopName = type(key) == 'number' and data.name or key
+                if type(shopName) == 'string' and shopName ~= '' then
+                    local items = SetupShopItems(data.items)
                     RegisteredShops[shopName] = {
                         name = shopName,
                         label = data.label,
                         coords = data.coords,
-                        slots = #data.items,
-                        items = SetupShopItems(data.items)
+                        bucket = data.bucket,
+                        slots = #items,
+                        items = items
                     }
-                else
-                    CreateShop(data)
                 end
+            else
+                CreateShop(data)
             end
         end
     end
+    return true
 end
 exports('CreateShop', CreateShop)
 
 function OpenShop(source, name)
     if not name then return end
     local Player = QBCore.Functions.GetPlayer(source)
-    if not Player or Player(source).state.inv_busy then return end
+    if not Player or IsInventoryServerBusy(source) then return end
     if not RegisteredShops[name] then return end
+    local shopBucket = RegisteredShops[name].bucket
+    local sourceBucket = GetInventoryRoutingBucket and GetInventoryRoutingBucket(source) or nil
+    if shopBucket ~= nil and sourceBucket ~= nil and tonumber(shopBucket) ~= sourceBucket then return end
     local playerPed = GetPlayerPed(source)
+    if not playerPed or playerPed == 0 then return end
     local playerCoords = GetEntityCoords(playerPed)
-    if RegisteredShops[name].coords then
-        local shopDistance = vector3(RegisteredShops[name].coords.x, RegisteredShops[name].coords.y, RegisteredShops[name].coords.z)
-        if shopDistance then
-            if #(playerCoords - shopDistance) > 5.0 then return end
-        end
-    end
+    local shopCoords = RegisteredShops[name].coords and NormalizeInventoryCoords(RegisteredShops[name].coords) or nil
+    if RegisteredShops[name].coords and not shopCoords then return end
+    if shopCoords and #(playerCoords - shopCoords) > (tonumber(Config.ShopAccessDistance) or 6.0) then return end
     local formattedInventory = {
         name = 'shop-' .. RegisteredShops[name].name,
         label = RegisteredShops[name].label,
@@ -757,35 +884,67 @@ function OpenShop(source, name)
         slots = #RegisteredShops[name].items,
         inventory = RegisteredShops[name].items
     }
+    if not SetInventorySession(source, 'shop-' .. RegisteredShops[name].name, 'shop', {
+        anchor = RegisteredShops[name].coords,
+        bucket = RegisteredShops[name].bucket,
+        accessDistance = Config.ShopAccessDistance,
+    }) then return end
     Player(source).state.inv_busy = true
-    SetInventorySession(source, 'shop-' .. RegisteredShops[name].name, 'shop')
     TriggerClientEvent('qb-inventory:client:sendServerTime', source, os.time())
     TriggerClientEvent('qb-inventory:client:openInventory', source, Player.PlayerData.items, formattedInventory)
 end
 exports('OpenShop', OpenShop)
 
 function OpenInventory(source, identifier, data)
-    if Player(source).state.inv_busy then return end
+    source = tonumber(source)
+    if not source then return end
     local QBPlayer = QBCore.Functions.GetPlayer(source)
     if not QBPlayer then return end
+    if IsInventoryServerBusy(source) then return end
     if not identifier then
-        ClearInventorySession(source)
+        if not SetInventorySession(source, 'player', 'player') then return end
         Player(source).state.inv_busy = true
         TriggerClientEvent('qb-inventory:client:openInventory', source, QBPlayer.PlayerData.items)
         return
     end
-    if type(identifier) ~= 'string' then print('Inventory tried to open an invalid identifier') return end
+    if type(identifier) ~= 'string' or identifier == '' then
+        print('Inventory tried to open an invalid identifier')
+        return
+    end
+
+    local sessionKind = (data and data.sessionKind) or 'stash'
+    local sessionContext = (data and type(data.sessionContext) == 'table') and data.sessionContext or {}
+    local vehicleNamespace = identifier:find('^trunk%-') or identifier:find('^glovebox%-')
+    if IsReservedInventoryIdentifier(identifier) then
+        local validVehicleNamespace = vehicleNamespace and sessionKind == 'vehicle' and tonumber(sessionContext.netId)
+        if not validVehicleNamespace then
+            print(('[qb-inventory] Refused generic OpenInventory on reserved identifier: %s'):format(identifier))
+            return
+        end
+    end
+
     local inventory = Inventories[identifier]
     if not inventory then
         local result = MySQL.prepare.await('SELECT * FROM inventories WHERE identifier = ?', { identifier })
         if result and result[1] then
          --   print(('Loaded inventory [%s] from database.'):format(identifier))
+            local decoded = {}
+            if type(result[1].items) == 'string' and result[1].items ~= '' then
+                local ok, parsed = pcall(json.decode, result[1].items)
+                if ok and type(parsed) == 'table' then
+                    decoded = parsed
+                else
+                    print(('[qb-inventory] Invalid JSON in inventory %s; loaded empty rather than crashing the open path.'):format(
+                        tostring(identifier)))
+                end
+            end
+            local inventorySlots = (data and data.slots) or Config.StashSize.slots
             Inventories[identifier] = {
-                items = SanitizeInventory(json.decode(result[1].items)),
+                items = SanitizeInventory(decoded, inventorySlots),
                 isOpen = false,
                 label = (data and data.label) or identifier,
                 maxweight = (data and data.maxweight) or Config.StashSize.maxweight,
-                slots = (data and data.slots) or Config.StashSize.slots
+                slots = inventorySlots
             }
             inventory = Inventories[identifier]
         else
@@ -800,20 +959,27 @@ function OpenInventory(source, identifier, data)
     inventory.maxweight = (data and data.maxweight) or (inventory and inventory.maxweight) or Config.StashSize.maxweight
     inventory.slots = (data and data.slots) or (inventory and inventory.slots) or Config.StashSize.slots
     inventory.label = (data and data.label) or (inventory and inventory.label) or identifier
-    inventory.isOpen = source
-    Player(source).state.inv_busy = true
 
     local formattedInventory = { name = identifier, label = inventory.label, maxweight = inventory.maxweight, slots = inventory.slots, inventory = inventory.items }
-    SetInventorySession(source, identifier, 'stash')
+    if data and data.coords and not sessionContext.anchor then sessionContext.anchor = data.coords end
+    if data and data.accessDistance and not sessionContext.accessDistance then sessionContext.accessDistance = data.accessDistance end
+    if not SetInventorySession(source, identifier, sessionKind, sessionContext) then return end
+    inventory.isOpen = source
+    Player(source).state.inv_busy = true
     TriggerClientEvent('qb-inventory:client:sendServerTime', source, os.time())
     TriggerClientEvent('qb-inventory:client:openInventory', source, QBPlayer.PlayerData.items, formattedInventory)
 end
 exports('OpenInventory', OpenInventory)
 
 function CreateInventory(identifier, data)
-    if Inventories[identifier] then return end
-    if not identifier then return end
+    if type(identifier) ~= 'string' or identifier == '' then return false end
+    if IsReservedInventoryIdentifier(identifier) then
+        print(('[qb-inventory] Refused CreateInventory on reserved identifier: %s'):format(identifier))
+        return false
+    end
+    if Inventories[identifier] then return false end
     Inventories[identifier] = InitializeInventory(identifier, data)
+    return true
 end
 exports('CreateInventory', CreateInventory)
 
@@ -823,9 +989,21 @@ end
 exports('GetInventory', GetInventory)
 
 function RemoveInventory(identifier)
-    if Inventories[identifier] then
-        Inventories[identifier] = nil
+    if not Inventories[identifier] then return true end
+
+    -- Never evict dirty cached data after a failed database write. External
+    -- resources may call this export during cleanup; dropping the cache anyway
+    -- would turn a transient oxmysql failure into permanent inventory loss.
+    if dirtyInventories[identifier] and not SaveStashInventory(identifier) then
+        print(('[qb-inventory] Refusing to remove dirty inventory %s because its save failed.'):format(
+            tostring(identifier)))
+        return false
     end
+
+    Inventories[identifier] = nil
+    dirtyInventories[identifier] = nil
+    stashSaveVersions[identifier] = nil
+    return true
 end
 exports('RemoveInventory', RemoveInventory)
 
@@ -991,6 +1169,7 @@ function AddItem(identifier, item, amount, slot, info, reason)
         TriggerClientEvent('qb-inventory:client:updateInventory', identifier, player.PlayerData.items)
     elseif inventoryType == 'stash' then
         Inventories[identifier].items = inventory
+        ScheduleInventorySave(identifier)
     elseif inventoryType == 'drop' then
         Drops[identifier].items = inventory
     end
@@ -1140,6 +1319,16 @@ function RemoveItem(identifier, item, amount, slot, reason)
     if inventoryType == 'player' then
         player.Functions.SetPlayerData('items', inventory)
         ScheduleSave(identifier)
+        if ReleaseItemUseReservation then
+            -- A successful authoritative consumption ends the slot reservation.
+            -- Some QBCore consumables remove by name without a slot, so permit a
+            -- same-name removal to release the reservation in that compatibility path.
+            if slot ~= nil then
+                ReleaseItemUseReservation(identifier, itemName, slot)
+            else
+                ReleaseItemUseReservation(identifier, itemName)
+            end
+        end
         if itemName == (Config.CashItemName or 'cash') and Config.CashAsItem then
             local cashTotal = GetItemCount(identifier, Config.CashItemName or 'cash') or 0
             if RSInventorySetCashAccountFromItem then
@@ -1152,6 +1341,7 @@ function RemoveItem(identifier, item, amount, slot, reason)
         TriggerClientEvent('qb-inventory:client:updateInventory', identifier, player.PlayerData.items)
     elseif inventoryType == 'stash' then
         Inventories[identifier].items = inventory
+        ScheduleInventorySave(identifier)
     elseif inventoryType == 'drop' then
         Drops[identifier].items = inventory
     end
@@ -1163,12 +1353,6 @@ function RemoveItem(identifier, item, amount, slot, reason)
     return true
 end
 exports('RemoveItem', RemoveItem)
-
-function GetInventory(identifier)
-    return Inventories[identifier]
-end
-
-exports('GetInventory', GetInventory)
 
 exports('GetPlayerInventoryLimits', function()
     return {

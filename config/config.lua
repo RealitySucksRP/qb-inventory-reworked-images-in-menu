@@ -46,6 +46,18 @@ Config = {
     DropAccessDistance = 3.5,
     PlayerAccessDistance = 3.5,
     ShopAccessDistance = 6.0,
+    StashAccessDistance = 8.0,    -- generic stashes bind to their server-open position
+    VehicleAccessDistance = 5.0, -- trunk session revalidated against the same net vehicle
+
+    -- Server-side anti-spam/persistence tuning.
+    UseItemRateLimitMs = 450,
+    MoveRateLimitMs = 50, -- executor/spam backstop; normal NUI moves are request/response serialized
+    -- Reserve a used non-weapon item's source slot while third-party progress/
+    -- minigame logic finishes. A matching RemoveItem releases it immediately.
+    UseItemReservationMs = 30000,
+    SnapshotRateLimitMs = 100,
+    DropListRateLimitMs = 1000,
+    StashSaveDelayMs = 500,
 
     Keybinds = {
         Open = 'TAB',
@@ -68,6 +80,16 @@ Config = {
         'prop_vend_water_01',
         'prop_vend_coffe_01',
     },
+
+    -- Optional strict server-authoritative vending coordinates. Base GTA map props
+    -- are client-world objects and cannot always be proven by the server. When this
+    -- list is populated and VendingStrictLocations is true, only these coordinates
+    -- can open a vending shop. Leave false to preserve normal AddTargetModel vending;
+    -- that fallback validates model/coords/net entity where possible but static map
+    -- prop existence remains a client trust boundary.
+    VendingStrictLocations = false,
+    VendingLocations = {},
+    VendingInteractionDistance = 3.0,
 
     VendingItems = {
         { name = 'kurkakola',    price = 4, amount = 50 },

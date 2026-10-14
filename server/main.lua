@@ -27,6 +27,152 @@ local activeDropRequests = {}
 RSInventoryBusy = RSInventoryBusy or {}
 local completedDropRequests = {}
 local lastVendingOpen = {}
+local lastUseItem = {}
+local lastSnapshotRequest = {}
+local lastDropListRequest = {}
+local lastMoveRequest = {}
+local shopTransactionLocks = {}
+local usedItemReservations = {}
+local USE_ITEM_RATE_LIMIT = tonumber(Config and Config.UseItemRateLimitMs) or 450
+local USE_ITEM_RESERVATION_MS = tonumber(Config and Config.UseItemReservationMs) or 30000
+
+local function GetLiveUseReservation(src)
+    src = tonumber(src)
+    if not src then return nil end
+    local reservation = usedItemReservations[src]
+    if not reservation then return nil end
+    if GetGameTimer() >= reservation.expiresAt then
+        usedItemReservations[src] = nil
+        return nil
+    end
+    return reservation
+end
+
+function IsItemUseSlotReserved(src, slot, itemName)
+    local reservation = GetLiveUseReservation(src)
+    if not reservation then return false end
+    slot = tonumber(slot)
+    if slot and reservation.slot ~= slot then return false end
+    if itemName and tostring(itemName):lower() ~= reservation.name then return false end
+    return true
+end
+
+function ReleaseItemUseReservation(src, itemName, slot)
+    local reservation = GetLiveUseReservation(src)
+    if not reservation then return false end
+    if itemName and tostring(itemName):lower() ~= reservation.name then return false end
+    if slot ~= nil and tonumber(slot) and tonumber(slot) ~= reservation.slot then return false end
+    usedItemReservations[tonumber(src)] = nil
+    return true
+end
+
+local function ReserveItemUse(src, itemData, itemInfo)
+    if USE_ITEM_RESERVATION_MS <= 0 or not itemData or not itemInfo then return true end
+    if itemInfo.type == 'weapon' or itemInfo.shouldClose == false then return true end
+    local slot = tonumber(itemData.slot)
+    if not slot or slot < 1 then return false end
+    if GetLiveUseReservation(src) then return false end
+    usedItemReservations[tonumber(src)] = {
+        slot = slot,
+        name = tostring(itemData.name):lower(),
+        expiresAt = GetGameTimer() + USE_ITEM_RESERVATION_MS,
+    }
+    return true
+end
+
+local function ReservedMoveSlot(inventoryName, actorSrc, slot)
+    if type(inventoryName) ~= 'string' then return false end
+    local owner = inventoryName == 'player' and tonumber(actorSrc) or
+        tonumber(inventoryName:match('^otherplayer%-(%d+)$'))
+    if not owner then return false end
+    return IsItemUseSlotReserved(owner, slot)
+end
+
+local function AcquirePlayerMutationLocks(...)
+    local ids, seen = {}, {}
+    for i = 1, select('#', ...) do
+        local id = tonumber(select(i, ...))
+        if id and id > 0 and not seen[id] then
+            seen[id] = true
+            ids[#ids + 1] = id
+        end
+    end
+    table.sort(ids)
+
+    for _, id in ipairs(ids) do
+        if RSInventoryBusy[id] then return nil end
+    end
+    for _, id in ipairs(ids) do RSInventoryBusy[id] = true end
+    return ids
+end
+
+local function ReleasePlayerMutationLocks(ids)
+    for _, id in ipairs(ids or {}) do RSInventoryBusy[id] = nil end
+end
+
+local function PlayerInventoryActionBlocked(Player)
+    if not Player or not Player.PlayerData then return true end
+    local metadata = Player.PlayerData.metadata or {}
+    return metadata.isdead == true or metadata.inlaststand == true or metadata.ishandcuffed == true
+end
+
+local function SameRoutingBucket(sourceA, sourceB)
+    if SameInventoryRoutingBucket then return SameInventoryRoutingBucket(sourceA, sourceB) end
+    return false
+end
+
+local vendingModelHashes = {}
+for _, model in ipairs(Config.VendingObjects or {}) do
+    vendingModelHashes[joaat(model)] = true
+end
+
+local function ValidateVendingInteraction(src, data)
+    if type(data) ~= 'table' then return nil, 'vending-no-proof' end
+
+    local model = tonumber(data.model)
+    local reportedCoords = NormalizeInventoryCoords(data.coords)
+    if not model or not vendingModelHashes[model] then return nil, 'vending-bad-model' end
+    if not reportedCoords then return nil, 'vending-bad-coords' end
+
+    local ped = GetPlayerPed(src)
+    if not ped or ped == 0 then return nil, 'vending-no-ped' end
+    local playerCoords = GetEntityCoords(ped)
+    local maxDistance = tonumber(Config.VendingInteractionDistance) or 3.0
+    if #(playerCoords - reportedCoords) > maxDistance then return nil, 'vending-too-far' end
+
+    if Config.VendingStrictLocations == true then
+        local matched = false
+        for _, location in ipairs(Config.VendingLocations or {}) do
+            local anchor = NormalizeInventoryCoords(location)
+            if anchor and #(reportedCoords - anchor) <= maxDistance and #(playerCoords - anchor) <= maxDistance then
+                reportedCoords = anchor
+                matched = true
+                break
+            end
+        end
+        if not matched then return nil, 'vending-not-configured' end
+    end
+
+    -- Networked objects can be proven server-side. Base-map props often have no
+    -- network id; those fall back to model/coords unless strict locations are on.
+    local netId = tonumber(data.netId)
+    if netId and netId > 0 then
+        local entity = NetworkGetEntityFromNetworkId(netId)
+        if not entity or entity == 0 or not DoesEntityExist(entity) then return nil, 'vending-entity-missing' end
+        if GetEntityType(entity) ~= 3 then return nil, 'vending-not-object' end
+        if not vendingModelHashes[GetEntityModel(entity)] then return nil, 'vending-entity-model' end
+        local okBucket, entityBucket = pcall(GetEntityRoutingBucket, entity)
+        local playerBucket = GetInventoryRoutingBucket(src)
+        if not okBucket or playerBucket == nil or tonumber(entityBucket) ~= playerBucket then
+            return nil, 'vending-bucket-mismatch'
+        end
+        local entityCoords = GetEntityCoords(entity)
+        if #(playerCoords - entityCoords) > maxDistance then return nil, 'vending-entity-too-far' end
+        reportedCoords = entityCoords
+    end
+
+    return reportedCoords
+end
 local SAVE_DELAY = 2500 -- save timer in milliseconds
 Config.Debug = false -- Set to false to disable console logs
 
@@ -47,20 +193,65 @@ local function SendRobberyLogToDiscord(title, color, fields)
     PerformHttpRequest(webhook_url, function(err, text, headers) end, 'POST', json.encode({ embeds = embed }), { ['Content-Type'] = 'application/json' })
 end
 
-function SanitizeInventory(items)
-    if not items or type(items) ~= 'table' then return {} end
-    local sanitizedItems = {}
-    for k, v in pairs(items) do
-        local slot = tonumber(k)
-        if slot and v and type(v) == 'table' then
-            v.slot = slot
-            sanitizedItems[slot] = v
+local function NormalizePersistedInfo(info)
+    if type(info) == 'table' then
+        local function clone(value)
+            if type(value) ~= 'table' then return value end
+            local out = {}
+            for key, child in pairs(value) do out[key] = clone(child) end
+            return out
+        end
+        return clone(info)
+    end
+    if type(info) == 'string' and info ~= '' then
+        local ok, decoded = pcall(json.decode, info)
+        if ok and type(decoded) == 'table' then return decoded end
+    end
+    return {}
+end
+
+function SanitizeInventory(items, maxSlots)
+    if not items or type(items) ~= 'table' then return {}, {} end
+    maxSlots = tonumber(maxSlots)
+    local sanitizedItems, rejected = {}, {}
+
+    for k, raw in pairs(items) do
+        if type(raw) == 'table' then
+            local slot = tonumber(raw.slot or k)
+            local amount = tonumber(raw.amount or raw.count)
+            local name = type(raw.name) == 'string' and raw.name:lower() or nil
+            local itemInfo = name and QBCore.Shared.Items[name] or nil
+            local validSlot = slot and slot == math.floor(slot) and slot >= 1 and
+                                  (not maxSlots or slot <= maxSlots)
+            local validAmount = amount and amount == math.floor(amount) and amount > 0
+
+            if validSlot and validAmount and itemInfo and not sanitizedItems[slot] then
+                sanitizedItems[slot] = {
+                    name = itemInfo.name,
+                    amount = amount,
+                    info = NormalizePersistedInfo(raw.info),
+                    label = itemInfo.label,
+                    description = itemInfo.description or '',
+                    weight = itemInfo.weight,
+                    type = itemInfo.type,
+                    unique = itemInfo.unique,
+                    useable = itemInfo.useable,
+                    image = itemInfo.image,
+                    shouldClose = itemInfo.shouldClose,
+                    slot = slot,
+                    combinable = itemInfo.combinable,
+                }
+            else
+                rejected[#rejected + 1] = name or tostring(raw.name or 'unknown')
+            end
         end
     end
-    return sanitizedItems
+
+    return sanitizedItems, rejected
 end
 
 exports('IsCashAsItem', function() return Config.CashAsItem end)
+exports('GetCashItemName', function() return Config.CashItemName or 'cash' end)
 
 local function CopyTable(tbl)
     if type(tbl) ~= 'table' then return tbl end
@@ -75,10 +266,26 @@ CreateThread(function()
             for i = 1, #result do
                 local inventory = result[i]
                 local cacheKey = inventory.identifier
-                Inventories[cacheKey] = {
-                    items = SanitizeInventory(json.decode(inventory.items)),
-                    isOpen = false
-                }
+                local decoded = {}
+                if type(inventory.items) == 'string' and inventory.items ~= '' then
+                    local ok, parsed = pcall(json.decode, inventory.items)
+                    if ok and type(parsed) == 'table' then
+                        decoded = parsed
+                    else
+                        print(('[qb-inventory] Invalid JSON in cached inventory %s; loaded empty instead of crashing the cache loader.'):format(
+                            tostring(cacheKey)))
+                    end
+                end
+                -- The preload query is asynchronous. A player may already have
+                -- lazy-loaded/opened this same stash while SELECT * was in flight;
+                -- never overwrite that newer live cache with the older startup
+                -- snapshot when this callback eventually returns.
+                if type(cacheKey) == 'string' and cacheKey ~= '' and not Inventories[cacheKey] then
+                    Inventories[cacheKey] = {
+                        items = SanitizeInventory(decoded),
+                        isOpen = false
+                    }
+                end
             end
             --   print(#result .. ' inventories successfully loaded')
         end
@@ -89,15 +296,51 @@ CreateThread(function()
     while true do
         for k, v in pairs(Drops) do
             if v and (v.createdTime + ((Config.CleanupDropTime or 15) * 60) < os.time()) and
-                not Drops[k].isOpen then
+                not Drops[k].isOpen and not Drops[k].carrier then
+                TriggerClientEvent('qb-inventory:client:removeDropTarget', -1, v.entityId)
                 local entity = NetworkGetEntityFromNetworkId(v.entityId)
-                if DoesEntityExist(entity) then
-                    DeleteEntity(entity)
-                end
+                if DoesEntityExist(entity) then DeleteEntity(entity) end
                 Drops[k] = nil
             end
         end
         Wait((Config.CleanupDropInterval or 1) * 60000)
+    end
+end)
+
+CreateThread(function()
+    while true do
+        Wait(1000)
+        for _, drop in pairs(Drops) do
+            local carrierId = drop and tonumber(drop.carrier) or nil
+            if carrierId then
+                local CarrierPlayer = QBCore.Functions.GetPlayer(carrierId)
+                local ped = CarrierPlayer and GetPlayerPed(carrierId) or 0
+                local metadata = CarrierPlayer and CarrierPlayer.PlayerData and CarrierPlayer.PlayerData.metadata or {}
+                local down = not CarrierPlayer or metadata.isdead == true or metadata.inlaststand == true
+                if not down and ped and ped ~= 0 then
+                    local okHealth, health = pcall(GetEntityHealth, ped)
+                    down = okHealth and tonumber(health) and health <= 0 or false
+                end
+
+                if not CarrierPlayer or not ped or ped == 0 then
+                    drop.carrier = nil
+                else
+                    -- Keep the logical access anchor authoritative while a bag is
+                    -- carried. This gives disconnect/death cleanup a recent server
+                    -- position even when the client's final release event is lost.
+                    drop.coords = GetEntityCoords(ped)
+                    local bucket = GetInventoryRoutingBucket(carrierId)
+                    if bucket ~= nil and tonumber(drop.bucket) ~= bucket then
+                        drop.bucket = bucket
+                        local entity = drop.entityId and NetworkGetEntityFromNetworkId(drop.entityId) or 0
+                        if entity and entity ~= 0 and DoesEntityExist(entity) then
+                            pcall(SetEntityRoutingBucket, entity, bucket)
+                        end
+                    end
+                    if down then drop.carrier = nil end
+                end
+            end
+        end
     end
 end)
 
@@ -113,6 +356,28 @@ AddEventHandler('QBCore:Server:PlayerUnloaded', function(source)
     completedDropRequests[source] = nil
     RSInventoryBusy[source] = nil
     lastVendingOpen[source] = nil
+    lastUseItem[source] = nil
+    lastSnapshotRequest[source] = nil
+    lastDropListRequest[source] = nil
+    lastMoveRequest[source] = nil
+    usedItemReservations[source] = nil
+    RegisteredShops['vending-' .. source] = nil
+    if PendingRobberies then
+        PendingRobberies[source] = nil
+        for robberId, pending in pairs(PendingRobberies) do
+            if pending.target == source then PendingRobberies[robberId] = nil end
+        end
+    end
+
+    local ped = GetPlayerPed(source)
+    local lastCoords = ped and ped ~= 0 and GetEntityCoords(ped) or nil
+    for _, drop in pairs(Drops) do
+        if drop.carrier == source then
+            if lastCoords then drop.coords = lastCoords end
+            drop.carrier = nil
+        end
+    end
+
     SaveInventory(source)
 
     for _, inv in pairs(Inventories) do
@@ -126,13 +391,7 @@ end)
 AddEventHandler('txAdmin:events:serverShuttingDown', function()
     local players = QBCore.Functions.GetPlayers()
     for _, playerId in pairs(players) do SaveInventory(playerId) end
-    for inventory, data in pairs(Inventories) do
-        if data.isOpen then
-            MySQL.prepare(
-                'INSERT INTO inventories (identifier, items) VALUES (?, ?) ON DUPLICATE KEY UPDATE items = ?',
-                {inventory, json.encode(data.items), json.encode(data.items)})
-        end
-    end
+    if FlushDirtyInventories then FlushDirtyInventories() end
 end)
 
 RegisterNetEvent('QBCore:Server:UpdateObject', function()
@@ -141,6 +400,11 @@ RegisterNetEvent('QBCore:Server:UpdateObject', function()
 end)
 
 AddEventHandler('QBCore:Server:PlayerLoaded', function(Player)
+    local src = Player and Player.PlayerData and Player.PlayerData.source
+    if src then
+        CleanupInventorySession(src, true)
+        Player(src).state.inv_busy = false
+    end
 
     QBCore.Functions.AddPlayerMethod(Player.PlayerData.source, 'AddItem',
                                      function(item, amount, slot, info, reason)
@@ -238,32 +502,30 @@ end
 RegisterNetEvent('qb-inventory:server:openVending', function(data)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
-    if not Player then return end
+    if not Player or PlayerInventoryActionBlocked(Player) then return end
+    if IsInventoryServerBusy(src) then return end
 
     local now = GetGameTimer()
     local lastOpen = lastVendingOpen[src] or 0
     if now - lastOpen < 1000 then return end
     lastVendingOpen[src] = now
 
-    -- The shop used to be built from client-supplied `data.coords`, and
-    -- attemptPurchase then validated the player's distance against those same
-    -- coords, so the check compared the attacker's number against itself.
-    -- The player's real server-side position is used instead, which makes the
-    -- purchase-time check mean "you have not walked away from the machine".
-    --
-    -- The key is per-player because a single global 'vending' entry meant two
-    -- players at two different machines overwrote each other.
-    local shopName = 'vending-' .. src
-    local playerCoords = GetEntityCoords(GetPlayerPed(src))
+    local vendingCoords, reason = ValidateVendingInteraction(src, data)
+    if not vendingCoords then
+        LogInventoryAccessDenied(src, 'shop-vending-' .. src, reason)
+        return
+    end
 
+    local shopName = 'vending-' .. src
     CreateShop({
         name = shopName,
         label = 'Vending Machine',
-        coords = playerCoords,
+        coords = vendingCoords,
+        bucket = GetInventoryRoutingBucket(src),
         slots = #Config.VendingItems,
         items = Config.VendingItems
     })
-    TriggerClientEvent('qb-inventory:client:sendServerTime', source, os.time())
+    TriggerClientEvent('qb-inventory:client:sendServerTime', src, os.time())
     OpenShop(src, shopName)
 end)
 
@@ -280,28 +542,29 @@ RegisterNetEvent('qb-inventory:server:closeInventory', function(inventory)
     if not QBPlayer then return end
 
     local session = GetInventorySession(src)
-    if inventory ~= nil and type(inventory) ~= 'string' then
+    if inventory ~= nil and type(inventory) ~= 'string' then return end
+    if type(inventory) == 'string' and #inventory > 255 then return end
+
+    -- An empty name is valid only for the player's own panel. Never reinterpret
+    -- an old/empty browser close as "close whatever secondary session exists":
+    -- a delayed NUI callback could otherwise tear down a newly opened stash,
+    -- trunk, drop or player-search session. Named sessions must close by name.
+    local hasNamedInventory = type(inventory) == 'string' and inventory ~= ''
+    if not hasNamedInventory then
+        if session and session.name ~= 'player' then
+            LogInventoryAccessDenied(src, inventory or '', 'close-empty-with-named-session')
+            return
+        end
+        Player(src).state.inv_busy = false
+        if session and session.name == 'player' then ClearInventorySession(src) end
         return
     end
 
-    -- Player-only inventory has no secondary name. If a secondary session does
-    -- exist but the client omitted the name, close the server's real session
-    -- instead of leaving a target/stash/drop locked.
-    if (not inventory or inventory == '') and session then
-        inventory = session.name
-    end
-
-    -- Lua treats the empty string as truthy. The NUI deliberately sends
-    -- name = "" when only the player's own inventory is open, so only a
-    -- non-empty secondary name should be subject to the session guard. An
-    -- empty/nil close is idempotent and must still clear inv_busy.
-    local hasNamedInventory = type(inventory) == 'string' and inventory ~= ''
-
-    if hasNamedInventory and not session then
+    if not session then
         LogInventoryAccessDenied(src, inventory, 'close-no-session')
         return
     end
-    if session and hasNamedInventory and session.name ~= inventory then
+    if session.name ~= inventory then
         LogInventoryAccessDenied(src, inventory, 'close-session-mismatch')
         return
     end
@@ -309,11 +572,15 @@ RegisterNetEvent('qb-inventory:server:closeInventory', function(inventory)
     Player(src).state.inv_busy = false
     ClearInventorySession(src)
 
-    if type(inventory) ~= 'string' or inventory == '' then return end
-    if inventory:find('^shop%-') then return end
+    if inventory:find('^shop%-') then
+        if inventory == ('shop-vending-' .. src) then
+            RegisteredShops['vending-' .. src] = nil
+        end
+        return
+    end
 
     if inventory:find('^otherplayer%-') then
-        local targetId = tonumber(inventory:match('^otherplayer%-(.+)'))
+        local targetId = tonumber(inventory:match('^otherplayer%-(%d+)$'))
         if targetId and QBCore.Functions.GetPlayer(targetId) then
             Player(targetId).state.inv_busy = false
         end
@@ -330,12 +597,13 @@ RegisterNetEvent('qb-inventory:server:closeInventory', function(inventory)
             if Config.Debug then
                 print(('[INV_DEBUG_SERVER] Drop bag %s is empty, deleting.'):format(inventory))
             end
-            TriggerClientEvent('qb-inventory:client:removeDropTarget', -1,
-                               Drops[inventory].entityId)
-            Wait(500)
-            local entity = NetworkGetEntityFromNetworkId(Drops[inventory].entityId)
-            if DoesEntityExist(entity) then DeleteEntity(entity) end
+            local entityId = Drops[inventory].entityId
+            -- Remove the logical inventory first so a forged openDrop cannot
+            -- re-open an empty bag during an entity-deletion delay/window.
             Drops[inventory] = nil
+            TriggerClientEvent('qb-inventory:client:removeDropTarget', -1, entityId)
+            local entity = NetworkGetEntityFromNetworkId(entityId)
+            if entity and entity ~= 0 and DoesEntityExist(entity) then DeleteEntity(entity) end
         elseif Config.Debug then
             print(('[INV_DEBUG_SERVER] Drop bag %s is not empty (%s items), keeping it.'):format(
                 inventory, GetItemCountInMap(Drops[inventory].items)))
@@ -349,20 +617,20 @@ RegisterNetEvent('qb-inventory:server:closeInventory', function(inventory)
         return
     end
     Inventories[inventory].isOpen = false
-
-    CreateThread(function()
-        MySQL.prepare.await(
-            'INSERT INTO inventories (identifier, items) VALUES (?, ?) ON DUPLICATE KEY UPDATE items = ?',
-            {
-                inventory, json.encode(Inventories[inventory].items),
-                json.encode(Inventories[inventory].items)
-            })
-    end)
+    if SaveStashInventory then
+        CreateThread(function() SaveStashInventory(inventory) end)
+    end
 end)
 
 RegisterNetEvent('qb-inventory:server:useItem', function(item)
     local src = source
     if type(item) ~= 'table' then return end
+
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player or PlayerInventoryActionBlocked(Player) then return end
+    local now = GetGameTimer()
+    if lastUseItem[src] and (now - lastUseItem[src]) < USE_ITEM_RATE_LIMIT then return end
+    lastUseItem[src] = now
 
     local slot = tonumber(item.slot)
     if not slot or slot ~= math.floor(slot) or slot < 1 or slot > Config.MaxSlots then
@@ -371,17 +639,24 @@ RegisterNetEvent('qb-inventory:server:useItem', function(item)
 
     local itemData = GetItemBySlot(src, slot)
     if not itemData then return end
-    if itemData.name == 'cash' then return end
+    if itemData.name == (Config.CashItemName or 'cash') then return end
 
     local itemInfo = QBCore.Shared.Items[itemData.name]
     if not itemInfo then return end
     local itemMeta = type(itemData.info) == 'table' and itemData.info or {}
+
+    if IsItemUseSlotReserved(src, slot) then return end
 
     if itemMeta.expiryDate and os.time() >= itemMeta.expiryDate then
         TriggerClientEvent('QBCore:Notify', src, Lang:t('notify.item_expired'),
                            'error')
         return
     end
+
+    -- Reserve delayed-use slots against drag/give/drop races. External usable
+    -- item callbacks may consume immediately or only after a client progress bar;
+    -- RemoveItem releases this early when the authoritative consumption commits.
+    if not ReserveItemUse(src, itemData, itemInfo) then return end
 
     if itemData.type == 'weapon' then
         TriggerClientEvent('qb-weapons:client:UseWeapon', src, itemData,
@@ -435,16 +710,20 @@ end)
 
 RegisterNetEvent('qb-inventory:server:openDrop', function(dropId)
     local src = source
-    if type(dropId) ~= 'string' then return end
+    if type(dropId) ~= 'string' or #dropId > 96 then return end
     local Player = QBCore.Functions.GetPlayer(src)
-    if not Player or Player(src).state.inv_busy then return end
+    if not Player or PlayerInventoryActionBlocked(Player) or IsInventoryServerBusy(src) then return end
+
+    local drop = Drops[dropId]
+    if not drop or drop.isOpen or drop.carrier then return end
+    local bucket = GetInventoryRoutingBucket(src)
+    if bucket == nil or drop.bucket == nil or tonumber(drop.bucket) ~= bucket then return end
+
     local playerPed = GetPlayerPed(src)
     local playerCoords = GetEntityCoords(playerPed)
-    local drop = Drops[dropId]
-    if not drop then return end
-    if drop.isOpen then return end
-    local distance = #(playerCoords - drop.coords)
-    if distance > 2.5 then return end
+    local dropCoords = NormalizeInventoryCoords(drop.coords)
+    if not dropCoords or #(playerCoords - dropCoords) > (tonumber(Config.DropAccessDistance) or 3.5) then return end
+
     local formattedInventory = {
         name = dropId,
         label = dropId,
@@ -452,11 +731,11 @@ RegisterNetEvent('qb-inventory:server:openDrop', function(dropId)
         slots = drop.slots,
         inventory = drop.items
     }
+    if not SetInventorySession(src, dropId, 'drop', { bucket = drop.bucket, anchor = dropCoords }) then return end
     drop.isOpen = src
     Player(src).state.inv_busy = true
-    SetInventorySession(src, dropId, 'drop')
-    TriggerClientEvent('qb-inventory:client:sendServerTime', source, os.time())
-    TriggerClientEvent('qb-inventory:client:openInventory', source,
+    TriggerClientEvent('qb-inventory:client:sendServerTime', src, os.time())
+    TriggerClientEvent('qb-inventory:client:openInventory', src,
                        Player.PlayerData.items, formattedInventory)
 end)
 
@@ -476,17 +755,41 @@ QBCore.Functions.CreateCallback('qb-inventory:server:pickupDrop',
 
     local Player = QBCore.Functions.GetPlayer(src)
     local drop = Drops[dropId]
-    if not Player or not drop then
+    if not Player or not drop or PlayerInventoryActionBlocked(Player) then
+        cb(false)
+        return
+    end
+    if IsInventoryServerBusy(src) then
+        cb(false)
+        return
+    end
+    local bucket = GetInventoryRoutingBucket(src)
+    if bucket == nil or drop.bucket == nil or tonumber(drop.bucket) ~= bucket then
         cb(false)
         return
     end
 
-    if drop.carrier and drop.carrier ~= src and GetPlayerName(drop.carrier) then
-        cb(false)
-        return
+    -- Recover stale carriers server-side. A dead/disconnected carrier may never
+    -- get a chance to send the normal client release event; without this, one
+    -- missed cleanup permanently bricks the bag for everyone else.
+    if drop.carrier and drop.carrier ~= src then
+        local carrierId = tonumber(drop.carrier)
+        local CarrierPlayer = carrierId and QBCore.Functions.GetPlayer(carrierId) or nil
+        local metadata = CarrierPlayer and CarrierPlayer.PlayerData and CarrierPlayer.PlayerData.metadata or nil
+        local carrierDown = not CarrierPlayer or (metadata and (metadata.isdead or metadata.inlaststand))
+        if carrierDown then
+            if CarrierPlayer then
+                local carrierPed = GetPlayerPed(carrierId)
+                if carrierPed and carrierPed ~= 0 then drop.coords = GetEntityCoords(carrierPed) end
+            end
+            drop.carrier = nil
+        else
+            cb(false)
+            return
+        end
     end
 
-    if drop.isOpen and drop.isOpen ~= src then
+    if drop.isOpen or drop.carrier then
         cb(false)
         return
     end
@@ -503,9 +806,14 @@ QBCore.Functions.CreateCallback('qb-inventory:server:pickupDrop',
         return
     end
 
-    -- Release any bag this player was already carrying.
-    for _, existing in pairs(Drops) do
-        if existing.carrier == src then existing.carrier = nil end
+    -- One player may carry exactly one server-tracked bag. Silently releasing
+    -- an older carrier left that physical bag attached client-side.
+    for existingId, existing in pairs(Drops) do
+        if existingId ~= dropId and existing.carrier == src then
+            LogInventoryAccessDenied(src, dropId, 'drop-already-carrying')
+            cb(false)
+            return
+        end
     end
 
     drop.carrier = src
@@ -515,8 +823,8 @@ end)
 RegisterNetEvent('qb-inventory:server:updateDrop', function(dropId, coords)
     local src = source
 
-    if type(dropId) ~= 'string' then
-        LogInventoryAccessDenied(src, dropId, 'drop-bad-id')
+    if type(dropId) ~= 'string' or #dropId > 96 then
+        LogInventoryAccessDenied(src, '<invalid-drop-id>', 'drop-bad-id')
         return
     end
 
@@ -531,31 +839,45 @@ RegisterNetEvent('qb-inventory:server:updateDrop', function(dropId, coords)
         return
     end
 
-    local newCoords = NormalizeInventoryCoords(coords)
-    if not newCoords then
-        LogInventoryAccessDenied(src, dropId, 'drop-bad-coords')
+    local bucket = GetInventoryRoutingBucket(src)
+    if bucket == nil or drop.bucket == nil or tonumber(drop.bucket) ~= bucket then
+        LogInventoryAccessDenied(src, dropId, 'drop-bucket-mismatch')
+        drop.carrier = nil
         return
     end
 
-    -- A bag is set down at the carrier's feet, so the reported position has to
-    -- agree with where the server thinks that player actually is.
-    local playerCoords = GetEntityCoords(GetPlayerPed(src))
-    if #(playerCoords - newCoords) > 5.0 then
+    local playerPed = GetPlayerPed(src)
+    if not playerPed or playerPed == 0 then return end
+    local playerCoords = GetEntityCoords(playerPed)
+
+    -- The visible bag is moved by its current network owner, but the access
+    -- anchor comes from the carrier's server position, not arbitrary event data.
+    local reported = NormalizeInventoryCoords(coords)
+    if reported and #(playerCoords - reported) > 5.0 then
         LogInventoryAccessDenied(src, dropId, 'drop-coords-mismatch')
-        return
     end
 
-    drop.coords = newCoords
+    drop.coords = playerCoords
     drop.carrier = nil
 end)
 
 QBCore.Functions.CreateCallback('qb-inventory:server:GetCurrentDrops',
-                                function(_, cb)
+                                function(source, cb)
+    local now = GetGameTimer()
+    local interval = tonumber(Config.DropListRateLimitMs) or 1000
+    if lastDropListRequest[source] and (now - lastDropListRequest[source]) < interval then
+        cb(false)
+        return
+    end
+    lastDropListRequest[source] = now
+
+    -- Only opaque network ids are exposed here, never item contents/coords. Keep
+    -- references for every live drop so a client that later changes routing
+    -- buckets can attach qb-target when that entity actually streams into scope.
+    -- Open/pickup/update remain bucket- and distance-authorized server-side.
     local publicDrops = {}
     for dropName, drop in pairs(Drops) do
-        if drop and drop.entityId then
-            publicDrops[dropName] = { entityId = drop.entityId }
-        end
+        if drop and drop.entityId then publicDrops[dropName] = { entityId = drop.entityId } end
     end
     cb(publicDrops)
 end)
@@ -564,12 +886,16 @@ QBCore.Functions.CreateCallback('qb-inventory:server:createDrop',
                                 function(source, cb, item)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
-    if not Player or type(item) ~= 'table' then
+    if not Player or PlayerInventoryActionBlocked(Player) or type(item) ~= 'table' then
         cb(false)
         return
     end
 
     local operationId = tostring(item.operationId or '')
+    if #operationId > 96 then
+        cb(false)
+        return
+    end
     completedDropRequests[src] = completedDropRequests[src] or {}
 
     if operationId ~= '' and completedDropRequests[src][operationId] then
@@ -620,6 +946,10 @@ QBCore.Functions.CreateCallback('qb-inventory:server:createDrop',
     end
 
     local itemOnServer = Player.PlayerData.items[fromSlot]
+    if IsItemUseSlotReserved(src, fromSlot) then
+        finish(false)
+        return
+    end
     if not itemOnServer then
         finish(false)
         return
@@ -633,14 +963,16 @@ QBCore.Functions.CreateCallback('qb-inventory:server:createDrop',
 
     local originalItem = CopyTable(itemOnServer)
 
-    -- The UI can only actively own one floor drop at a time. Release any
-    -- previous drop lock before switching the right panel to the new bag.
-    for _, existingDrop in pairs(Drops) do
-        if existingDrop.isOpen == src then existingDrop.isOpen = false end
-    end
-
+    -- Keep the current session intact until the replacement drop is fully
+    -- created. SetInventorySession performs the old-lock release atomically on
+    -- the successful transition; failures below therefore leave the old UI valid.
     local playerPed = GetPlayerPed(src)
     local playerCoords = GetEntityCoords(playerPed)
+    local dropBucket = GetInventoryRoutingBucket(src)
+    if dropBucket == nil then
+        finish(false)
+        return
+    end
 
     if not RemoveItem(src, itemOnServer.name, amountToDrop, fromSlot, 'dropped item') then
         finish(false)
@@ -664,6 +996,9 @@ QBCore.Functions.CreateCallback('qb-inventory:server:createDrop',
         return
     end
 
+    pcall(SetEntityRoutingBucket, bag, dropBucket)
+    pcall(SetEntityOrphanMode, bag, 2)
+
     local dropId = NetworkGetNetworkIdFromEntity(bag)
     if not dropId or dropId == 0 then
         DeleteEntity(bag)
@@ -679,17 +1014,11 @@ QBCore.Functions.CreateCallback('qb-inventory:server:createDrop',
     newItemForDrop.slot = 1
 
     if Drops[newDropId] then
-        local freeSlot = GetFirstFreeSlot(Drops[newDropId].items,
-                                          Drops[newDropId].slots)
-        if not freeSlot then
-            DeleteEntity(bag)
-            AddItem(src, originalItem.name, amountToDrop, fromSlot,
-                    originalItem.info, 'drop-full-refund')
-            finish(false)
-            return
-        end
-        newItemForDrop.slot = freeSlot
-        Drops[newDropId].items[freeSlot] = newItemForDrop
+        DeleteEntity(bag)
+        AddItem(src, originalItem.name, amountToDrop, fromSlot,
+                originalItem.info, 'drop-id-collision-refund')
+        finish(false)
+        return
     else
         Drops[newDropId] = {
             name = newDropId,
@@ -698,15 +1027,24 @@ QBCore.Functions.CreateCallback('qb-inventory:server:createDrop',
             entityId = dropId,
             createdTime = os.time(),
             coords = playerCoords,
+            bucket = dropBucket,
+            carrier = nil,
             maxweight = Config.DropSize.maxweight,
             slots = Config.DropSize.slots,
-            isOpen = src
+            isOpen = false
         }
-        TriggerClientEvent('qb-inventory:client:setupDropTarget', -1, dropId)
     end
 
+    if not SetInventorySession(src, newDropId, 'drop', { bucket = dropBucket, anchor = playerCoords }) then
+        Drops[newDropId] = nil
+        DeleteEntity(bag)
+        AddItem(src, originalItem.name, amountToDrop, fromSlot,
+                originalItem.info, 'drop-session-failed-refund')
+        finish(false)
+        return
+    end
     Drops[newDropId].isOpen = src
-    SetInventorySession(src, newDropId, 'drop')
+    TriggerClientEvent('qb-inventory:client:setupDropTarget', -1, dropId)
 
     local responseData = {
         netId = dropId,
@@ -756,7 +1094,7 @@ QBCore.Functions.CreateCallback('qb-inventory:server:attemptPurchase',
     local shop = shopInventoryName:gsub('^shop%-', '')
     local Player = QBCore.Functions.GetPlayer(source)
     local shopInfo = RegisteredShops[shop]
-    if not Player or not shopInfo then
+    if not Player or PlayerInventoryActionBlocked(Player) or not shopInfo then
         cb(false)
         return
     end
@@ -782,40 +1120,87 @@ QBCore.Functions.CreateCallback('qb-inventory:server:attemptPurchase',
         return
     end
 
-    local unitPrice = tonumber(shopItem.price) or 0
-    if unitPrice < 0 then
+    local unitPrice = tonumber(shopItem.price)
+    if not unitPrice or unitPrice < 0 then
         cb(false)
         return
     end
     local price = unitPrice * amount
-    local canPay = price == 0 or RemoveCash(source, price, 'shop-purchase')
 
-    if canPay then
+    -- A purchase mutates two shared resources: the buyer inventory/cash and the
+    -- specific shop slot. The old per-player lock protected only the buyer, so
+    -- two different players could both read the same final stock and oversell it.
+    local shopLockKey = ('%s:%s'):format(shop, slot)
+    if shopTransactionLocks[shopLockKey] then
+        cb(false)
+        return
+    end
+    local playerLocks = AcquirePlayerMutationLocks(source)
+    if not playerLocks then
+        cb(false)
+        return
+    end
+    shopTransactionLocks[shopLockKey] = source
+
+    local paidAmount = 0
+    local itemAdded = false
+    local ok, purchaseResult = pcall(function()
+        -- Re-read stock after acquiring the mutation lock so this callback never
+        -- commits against a stale pre-lock quantity.
+        local currentStock = tonumber(shopItem.amount) or 0
+        if amount > currentStock then
+            TriggerClientEvent('QBCore:Notify', source,
+                               'Cannot purchase larger quantity than currently in stock',
+                               'error')
+            return false
+        end
+
+        local canPay = price == 0 or RemoveCash(source, price, 'shop-purchase')
+        if not canPay then
+            TriggerClientEvent('QBCore:Notify', source,
+                               'You do not have enough money', 'error')
+            return false
+        end
+        paidAmount = price
+
         -- Price, item identity and metadata all come from the registered
         -- server-side shop entry; the browser is not authoritative here.
         local purchaseInfo = CopyTable(shopItem.info or {})
-
-        if AddItem(source, shopItem.name, amount, nil, purchaseInfo,
-                   'shop-purchase') then
-            TriggerEvent('qb-shops:server:UpdateShopItems', shop, shopItem,
-                         amount)
-            TriggerClientEvent('qb-inventory:client:updateInventory', source,
-                               Player.PlayerData.items)
-            cb(true)
-        else
-            if price > 0 then
-                AddCash(source, price, 'shop-purchase-failed-refund')
-            end
+        if not AddItem(source, shopItem.name, amount, nil, purchaseInfo,
+                       'shop-purchase') then
+            if price > 0 then AddCash(source, price, 'shop-purchase-failed-refund') end
+            paidAmount = 0
             TriggerClientEvent('QBCore:Notify', source,
-                               'Transaction failed, could not add item.',
-                               'error')
-            cb(false)
+                               'Transaction failed, could not add item.', 'error')
+            return false
         end
-    else
-        TriggerClientEvent('QBCore:Notify', source,
-                           'You do not have enough money', 'error')
+
+        itemAdded = true
+        shopItem.amount = currentStock - amount
+        TriggerEvent('qb-shops:server:UpdateShopItems', shop, shopItem, amount)
+        TriggerClientEvent('qb-inventory:client:updateInventory', source,
+                           Player.PlayerData.items)
+        return true
+    end)
+
+    -- Never strand the per-player mutation lock on an unexpected integration
+    -- exception. If payment happened but the item was not granted, refund it.
+    shopTransactionLocks[shopLockKey] = nil
+    ReleasePlayerMutationLocks(playerLocks)
+    if not ok then
+        if paidAmount > 0 and not itemAdded then
+            pcall(AddCash, source, paidAmount, 'shop-purchase-error-refund')
+        end
+        local line = ('[qb-inventory] shop purchase error src=%s shop=%s slot=%s: %s')
+            :format(tostring(source), tostring(shop), tostring(slot), tostring(purchaseResult))
+        print('^1' .. line .. '^7')
+        TriggerEvent('qb-log:server:CreateLog', 'playerinventory', 'Shop purchase error',
+                     'red', line, false)
         cb(false)
+        return
     end
+
+    cb(purchaseResult == true)
 end)
 
 QBCore.Functions.CreateCallback('qb-inventory:server:giveItem',
@@ -849,9 +1234,14 @@ QBCore.Functions.CreateCallback('qb-inventory:server:giveItem',
         return
     end
 
+    if not SameRoutingBucket(source, targetId) then
+        cb(false)
+        return
+    end
+
     local pCoords = GetEntityCoords(GetPlayerPed(source))
     local tCoords = GetEntityCoords(GetPlayerPed(targetId))
-    if #(pCoords - tCoords) > 5.0 then
+    if #(pCoords - tCoords) > (tonumber(Config.PlayerAccessDistance) or 3.5) then
         cb(false)
         return
     end
@@ -864,46 +1254,72 @@ QBCore.Functions.CreateCallback('qb-inventory:server:giveItem',
         return
     end
 
-    local serverItem = player.PlayerData.items and player.PlayerData.items[slot]
-    if not serverItem or type(serverItem.name) ~= 'string' or
-        amount > (tonumber(serverItem.amount) or 0) then
+    -- Giving is one transaction across two live player tables. Lock both players
+    -- so the receiver cannot move/use items (or run a cash reconciliation) in
+    -- the middle of the remove/add/rollback sequence.
+    local playerLocks = AcquirePlayerMutationLocks(source, targetId)
+    if not playerLocks then
         cb(false)
         return
     end
 
-    local item = serverItem.name:lower()
-    local itemInfo = QBCore.Shared.Items[item]
-    if not itemInfo then
-        cb(false)
-        return
-    end
-    local info = CopyTable(serverItem.info or {})
-
-    if RemoveItem(source, item, amount, slot,
-                  'Item given to ID #' .. targetId) then
-        if AddItem(targetId, item, amount, false, info,
-                   'Item received from ID #' .. source) then
-            if itemInfo.type == 'weapon' then
-                checkWeapon(source, item)
-            end
-
-            TriggerClientEvent('qb-inventory:client:giveAnim', source)
-            TriggerClientEvent('qb-inventory:client:giveAnim', targetId)
-
-            if Player(targetId).state.inv_busy then
-                TriggerClientEvent('qb-inventory:client:updateInventory',
-                                   targetId, Target.PlayerData.items)
-            end
-
-            cb(true)
-        else
-            AddItem(source, item, amount, slot, info,
-                    'Failed to give item, returned.')
-            cb(false)
+    local ok, result = pcall(function()
+        -- Re-read all mutable state after the locks are held.
+        player = QBCore.Functions.GetPlayer(source)
+        Target = QBCore.Functions.GetPlayer(targetId)
+        if not player or not Target or PlayerInventoryActionBlocked(player) or
+            PlayerInventoryActionBlocked(Target) or not SameRoutingBucket(source, targetId) then
+            return false
         end
-    else
+
+        local sourcePed = GetPlayerPed(source)
+        local targetPed = GetPlayerPed(targetId)
+        if sourcePed == 0 or targetPed == 0 or
+            #(GetEntityCoords(sourcePed) - GetEntityCoords(targetPed)) >
+                (tonumber(Config.PlayerAccessDistance) or 3.5) then
+            return false
+        end
+
+        local serverItem = player.PlayerData.items and player.PlayerData.items[slot]
+        if IsItemUseSlotReserved(source, slot) then return false end
+        if not serverItem or type(serverItem.name) ~= 'string' or
+            amount > (tonumber(serverItem.amount) or 0) then
+            return false
+        end
+
+        local item = serverItem.name:lower()
+        local itemInfo = QBCore.Shared.Items[item]
+        if not itemInfo then return false end
+        local info = CopyTable(serverItem.info or {})
+
+        if not RemoveItem(source, item, amount, slot, 'Item given to ID #' .. targetId) then
+            return false
+        end
+        if not AddItem(targetId, item, amount, false, info, 'Item received from ID #' .. source) then
+            if not AddItem(source, item, amount, slot, info, 'Failed to give item, returned.') then
+                print(('[qb-inventory] CRITICAL: give rollback failed source=%s target=%s item=%s amount=%s')
+                    :format(source, targetId, item, amount))
+            end
+            return false
+        end
+
+        if itemInfo.type == 'weapon' then checkWeapon(source, item) end
+        TriggerClientEvent('qb-inventory:client:giveAnim', source)
+        TriggerClientEvent('qb-inventory:client:giveAnim', targetId)
+        if IsInventoryServerBusy(targetId) then
+            TriggerClientEvent('qb-inventory:client:updateInventory', targetId, Target.PlayerData.items)
+        end
+        return true
+    end)
+
+    ReleasePlayerMutationLocks(playerLocks)
+    if not ok then
+        print(('[qb-inventory] giveItem transaction error source=%s target=%s: %s')
+            :format(tostring(source), tostring(targetId), tostring(result)))
         cb(false)
+        return
     end
+    cb(result == true)
 end)
 
 local function getItem(inventoryId, src, slot)
@@ -913,8 +1329,8 @@ local function getItem(inventoryId, src, slot)
         if Player and Player.PlayerData.items then
             items = Player.PlayerData.items
         end
-    elseif inventoryId:find('otherplayer-') then
-        local targetId = tonumber(inventoryId:match('otherplayer%-(.+)'))
+    elseif inventoryId:find('^otherplayer%-') then
+        local targetId = tonumber(inventoryId:match('^otherplayer%-(%d+)$'))
         local targetPlayer = QBCore.Functions.GetPlayer(targetId)
         if targetPlayer and targetPlayer.PlayerData.items then
             items = targetPlayer.PlayerData.items
@@ -936,11 +1352,42 @@ end
 local function getIdentifier(inventoryId, src)
     if inventoryId == 'player' then
         return src
-    elseif inventoryId:find('otherplayer-') then
-        return tonumber(inventoryId:match('otherplayer%-(.+)'))
+    elseif inventoryId:find('^otherplayer%-') then
+        return tonumber(inventoryId:match('^otherplayer%-(%d+)$'))
     else
         return inventoryId
     end
+end
+
+
+local function GetInventoryWeightState(identifier)
+    local Player = QBCore.Functions.GetPlayer(identifier)
+    if Player then
+        return Player.PlayerData.items or {}, tonumber(Config.MaxWeight) or 0
+    end
+
+    local inventory = Inventories[identifier] or Drops[identifier]
+    if inventory then
+        return inventory.items or {}, tonumber(inventory.maxweight) or 0
+    end
+    return nil, nil
+end
+
+local function CanReceiveFullSwap(identifier, outgoingItem, incomingItem)
+    local items, maxWeight = GetInventoryWeightState(identifier)
+    if not items or not maxWeight or maxWeight <= 0 then return false, 'inventory' end
+
+    local outgoingDef = outgoingItem and QBCore.Shared.Items[outgoingItem.name]
+    local incomingDef = incomingItem and QBCore.Shared.Items[incomingItem.name]
+    if not outgoingDef or not incomingDef then return false, 'item' end
+
+    local outgoingAmount = tonumber(outgoingItem.amount) or 0
+    local incomingAmount = tonumber(incomingItem.amount) or 0
+    local outgoingWeight = (tonumber(outgoingDef.weight) or 0) * outgoingAmount
+    local incomingWeight = (tonumber(incomingDef.weight) or 0) * incomingAmount
+    local projectedWeight = GetTotalWeight(items) - outgoingWeight + incomingWeight
+    if projectedWeight > maxWeight then return false, 'weight' end
+    return true
 end
 
 
@@ -950,8 +1397,8 @@ local function BuildOtherInventorySnapshot(inventoryName)
         return nil
     end
 
-    if inventoryName:find('otherplayer%-') == 1 then
-        local targetId = tonumber(inventoryName:match('otherplayer%-(.+)'))
+    if inventoryName:find('^otherplayer%-') then
+        local targetId = tonumber(inventoryName:match('^otherplayer%-(%d+)$'))
         local TargetPlayer = targetId and QBCore.Functions.GetPlayer(targetId)
         if not TargetPlayer then return nil end
         return {
@@ -1015,8 +1462,16 @@ end
 
 QBCore.Functions.CreateCallback('qb-inventory:server:getInventorySnapshot',
                                 function(source, cb, otherInventoryName)
+    local now = GetGameTimer()
+    local interval = tonumber(Config.SnapshotRateLimitMs) or 100
+    if lastSnapshotRequest[source] and (now - lastSnapshotRequest[source]) < interval then
+        cb(false)
+        return
+    end
+    lastSnapshotRequest[source] = now
+
     if otherInventoryName ~= nil then
-        if type(otherInventoryName) ~= 'string' then
+        if type(otherInventoryName) ~= 'string' or #otherInventoryName > 255 then
             cb(false)
             return
         end
@@ -1036,6 +1491,24 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData',
                  function(fromInventory, toInventory, fromSlot, toSlot,
                           fromAmount, toAmount, requestId)
     local src = source
+    local actingPlayer = QBCore.Functions.GetPlayer(src)
+    if not actingPlayer or PlayerInventoryActionBlocked(actingPlayer) then
+        if requestId and actingPlayer and type(requestId) == 'string' and #requestId <= 96 then
+            TriggerClientEvent('qb-inventory:client:inventoryOperationResult', src,
+                               requestId, BuildInventorySnapshot(src, nil, false,
+                               'player-state-blocked'))
+        end
+        return
+    end
+
+    if requestId ~= nil and (type(requestId) ~= 'string' or #requestId > 96) then return end
+    if type(fromInventory) ~= 'string' or type(toInventory) ~= 'string' or
+        #fromInventory > 255 or #toInventory > 255 then return end
+
+    local now = GetGameTimer()
+    local moveInterval = tonumber(Config.MoveRateLimitMs) or 50
+    if lastMoveRequest[src] and (now - lastMoveRequest[src]) < moveInterval then return end
+    lastMoveRequest[src] = now
 
     -- Reject a second move for this player while one is still in flight. The
     -- client already guards this with inventoryActionPending, but that is a UI
@@ -1051,6 +1524,7 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData',
     local robberyItemName
     local robberyAmount
     local moveCompleted = false
+    local secondaryPlayerLock
 
     if type(fromInventory) == 'string' and fromInventory ~= 'player' then
         otherInventoryName = fromInventory
@@ -1092,7 +1566,7 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData',
                 not fromSlot or not toSlot or not fromAmount or not toAmount then
                 return
             end
-            if toInventory:find('shop%-') then return end
+            if toInventory:find('^shop%-') then return end
 
             local Player = QBCore.Functions.GetPlayer(src)
             if not Player then return end
@@ -1125,6 +1599,12 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData',
                 return
             end
 
+            if ReservedMoveSlot(fromInventory, src, fromSlot) or
+                ReservedMoveSlot(toInventory, src, toSlot) then
+                LogInventoryAccessDenied(src, fromInventory, 'item-use-slot-reserved')
+                return
+            end
+
             local canFrom, fromReason = CanAccessInventory(src, fromInventory)
             if not canFrom then
                 LogInventoryAccessDenied(src, fromInventory, fromReason)
@@ -1137,6 +1617,22 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData',
                 return
             end
 
+            -- A robbery/admin move touches the victim's live player table too.
+            -- Lock that player for the entire transaction so their own NUI/cash
+            -- sync/give operation cannot interleave with our rollback sequence.
+            local targetFrom = tonumber(fromInventory:match('^otherplayer%-(%d+)$'))
+            local targetTo = tonumber(toInventory:match('^otherplayer%-(%d+)$'))
+            local otherPlayerId = targetFrom or targetTo
+            if targetFrom and targetTo and targetFrom ~= targetTo then
+                LogInventoryAccessDenied(src, toInventory, 'multiple-player-targets')
+                return
+            end
+            if otherPlayerId and otherPlayerId ~= src then
+                if RSInventoryBusy[otherPlayerId] then return end
+                RSInventoryBusy[otherPlayerId] = true
+                secondaryPlayerLock = otherPlayerId
+            end
+
             local fromItem = getItem(fromInventory, src, fromSlot)
             local toItem = getItem(toInventory, src, toSlot)
 
@@ -1147,8 +1643,8 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData',
                 return
             end
 
-            if fromInventory:find('otherplayer-') and toInventory == 'player' then
-                robberyTargetId = tonumber(fromInventory:match('otherplayer%-(.+)'))
+            if fromInventory:find('^otherplayer%-') and toInventory == 'player' then
+                robberyTargetId = tonumber(fromInventory:match('^otherplayer%-(%d+)$'))
                 robberyItemName = fromItem.name
                 robberyAmount = toAmount
                 local targetId = robberyTargetId
@@ -1238,6 +1734,13 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData',
                             inventoryItems[fromSlot] = nil
                         end
                     else
+                        -- A non-stack target is a full-slot swap. Treat a client
+                        -- request for only part of the source stack as invalid
+                        -- rather than silently moving the entire stack.
+                        if toAmount ~= serverFromAmount then
+                            LogInventoryAccessDenied(src, fromInventory, 'partial-swap-request')
+                            return
+                        end
                         if Config.Debug then
                             print('[INV_DEBUG_SERVER] > Logic Path: Swap (Safe Method)')
                         end
@@ -1263,7 +1766,9 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData',
                     Drops[inventoryId].items = inventoryItems
                 elseif isStash then
                     Inventories[inventoryId].items = inventoryItems
+                    if ScheduleInventorySave then ScheduleInventorySave(inventoryId) end
                 end
+                moveCompleted = true
             else
                 if Config.Debug then
                     print('[INV_DEBUG_SERVER] > Action: Different Inventory Move')
@@ -1320,12 +1825,22 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData',
                     end
                 else
                     if toItem then
+                        if toAmount ~= serverFromAmount then
+                            LogInventoryAccessDenied(src, fromInventory, 'partial-cross-swap-request')
+                            return
+                        end
                         if Config.Debug then
                             print('[INV_DEBUG_SERVER] > Logic Path: Swap across inventories')
                         end
                         local toItemAmount = toItem.amount
-                        local canAddTo, reasonTo = CanAddItem(toId, fromItem.name, serverFromAmount)
-                        local canAddFrom, reasonFrom = CanAddItem(fromId, toItem.name, toItemAmount)
+                        -- Both destination slots are already occupied. CanAddItem
+                        -- falsely rejects legitimate swaps when an inventory is
+                        -- full because it evaluates the incoming stack before the
+                        -- outgoing stack has freed its weight/slot. Validate the
+                        -- projected post-swap weights instead; slot count is
+                        -- unchanged for a full occupied-slot swap.
+                        local canAddTo, reasonTo = CanReceiveFullSwap(toId, toItem, fromItem)
+                        local canAddFrom, reasonFrom = CanReceiveFullSwap(fromId, fromItem, toItem)
                         if canAddTo and canAddFrom then
                             local removedFrom = RemoveItem(fromId, fromItem.name,
                                                            serverFromAmount, fromSlot,
@@ -1440,12 +1955,16 @@ RegisterNetEvent('qb-inventory:server:SetInventoryData',
     end
 
     if requestId then
+        local operationSucceeded = ok and moveCompleted
         TriggerClientEvent('qb-inventory:client:inventoryOperationResult', src,
                            requestId,
-                           BuildInventorySnapshot(src, otherInventoryName, ok,
-                                                  not ok and tostring(err) or nil))
+                           BuildInventorySnapshot(src, otherInventoryName,
+                                                  operationSucceeded,
+                                                  not ok and tostring(err) or
+                                                  (not moveCompleted and 'move-rejected' or nil)))
     end
 
+    if secondaryPlayerLock then RSInventoryBusy[secondaryPlayerLock] = nil end
     RSInventoryBusy[src] = nil
 end)
 
@@ -1475,21 +1994,61 @@ end
 -- robPlayer refuses to do anything without a live token that it consumes.
 PendingRobberies = {}
 
-local ROBBERY_HANDSHAKE_TIMEOUT = 10   -- seconds to answer the hands-up probe
-local ROBBERY_TOKEN_TIMEOUT     = 15   -- seconds to finish the progress bar
-local ROBBERY_DISTANCE          = 3.0
+local ROBBERY_HANDSHAKE_TIMEOUT = 10
+local ROBBERY_TOKEN_TIMEOUT = 15
+local ROBBERY_FINAL_CHECK_TIMEOUT = 5
+local ROBBERY_PROGRESS_MS = 5000
+local ROBBERY_DISTANCE = 3.0
 
 local function ClearRobbery(robberId)
     PendingRobberies[robberId] = nil
 end
 
 local function RobberyDistanceOk(robberId, targetId)
+    if not SameRoutingBucket(robberId, targetId) then return false end
     local robberPed = GetPlayerPed(robberId)
     local targetPed = GetPlayerPed(targetId)
     if not robberPed or not targetPed or robberPed == 0 or targetPed == 0 then
         return false
     end
     return #(GetEntityCoords(robberPed) - GetEntityCoords(targetPed)) <= ROBBERY_DISTANCE
+end
+
+local function CompleteRobbery(robberId, targetId)
+    local RobberPlayer = QBCore.Functions.GetPlayer(robberId)
+    local TargetPlayer = QBCore.Functions.GetPlayer(targetId)
+    if not RobberPlayer or not TargetPlayer then return false end
+    if PlayerInventoryActionBlocked(RobberPlayer) then return false end
+    if not RobberyDistanceOk(robberId, targetId) then
+        TriggerClientEvent('QBCore:Notify', robberId, 'Target is too far away.', 'error')
+        return false
+    end
+    if IsInventoryServerBusy(targetId) then
+        TriggerClientEvent('QBCore:Notify', robberId, 'This person is busy.', 'error')
+        return false
+    end
+
+    local robberIdentifier = RobberPlayer.PlayerData.license
+    local targetIdentifier = TargetPlayer.PlayerData.license
+    local robberCitizenId = RobberPlayer.PlayerData.citizenid
+    local targetCitizenId = TargetPlayer.PlayerData.citizenid
+    local logFields = {
+        { name = 'Robber', value = string.format('```Name: %s\nID: %s\nCitizenID: %s\nIdentifier: %s```', GetPlayerName(robberId), robberId, robberCitizenId, robberIdentifier), inline = true },
+        { name = 'Victim', value = string.format('```Name: %s\nID: %s\nCitizenID: %s\nIdentifier: %s```', GetPlayerName(targetId), targetId, targetCitizenId, targetIdentifier), inline = true }
+    }
+    SendRobberyLogToDiscord('Player Robbery Initiated', 16753920, logFields)
+
+    if not TargetPlayer.PlayerData.metadata['isdead'] then
+        TriggerClientEvent('qb-inventory:client:beingRobbed', targetId)
+    end
+
+    if not OpenInventoryById(robberId, targetId) then
+        TriggerClientEvent('QBCore:Notify', robberId, 'This person is busy.', 'error')
+        return false
+    end
+    TriggerClientEvent('QBCore:Notify', targetId, 'You are being searched!', 'error', 7500)
+    TriggerClientEvent('QBCore:Notify', robberId, 'You started searching ' .. GetPlayerName(targetId), 'success', 7500)
+    return true
 end
 
 RegisterNetEvent('robbery:server:initiateRob', function(targetId)
@@ -1499,25 +2058,22 @@ RegisterNetEvent('robbery:server:initiateRob', function(targetId)
 
     local RobberPlayer = QBCore.Functions.GetPlayer(src)
     local TargetPlayer = QBCore.Functions.GetPlayer(targetId)
-
-    if not RobberPlayer or not TargetPlayer then return end
+    if not RobberPlayer or not TargetPlayer or PlayerInventoryActionBlocked(RobberPlayer) then return end
 
     if not RobberyDistanceOk(src, targetId) then
-        TriggerClientEvent('QBCore:Notify', src, 'Target is too far away.',
-                           'error')
+        TriggerClientEvent('QBCore:Notify', src, 'Target is too far away.', 'error')
         return
     end
-
-    if Player(targetId).state.inv_busy then
+    if IsInventoryServerBusy(src) or IsInventoryServerBusy(targetId) then
         TriggerClientEvent('QBCore:Notify', src, 'This person is busy.', 'error')
         return
     end
 
-    if TargetPlayer.PlayerData.metadata['isdead'] then
-        -- A dead target is verified server side, so the token is live immediately.
+    if TargetPlayer.PlayerData.metadata['isdead'] or TargetPlayer.PlayerData.metadata['inlaststand'] then
         PendingRobberies[src] = {
             target = targetId,
             stage = 'approved',
+            readyAt = GetGameTimer() + ROBBERY_PROGRESS_MS,
             expires = os.time() + ROBBERY_TOKEN_TIMEOUT
         }
         TriggerClientEvent('robbery:client:startRobberyProgress', src, targetId)
@@ -1529,7 +2085,6 @@ RegisterNetEvent('robbery:server:initiateRob', function(targetId)
         stage = 'checking',
         expires = os.time() + ROBBERY_HANDSHAKE_TIMEOUT
     }
-
     TriggerClientEvent('robbery:client:checkIfHandsUp', targetId, src)
 end)
 
@@ -1538,21 +2093,36 @@ RegisterNetEvent('robbery:server:handsUpResult', function(robberId, isHandsUp)
     robberId = tonumber(robberId)
     if not robberId then return end
 
-    -- Only the player actually being probed may answer, and only for the robber
-    -- the server paired them with.
     local pending = PendingRobberies[robberId]
-    if not pending or pending.stage ~= 'checking' or pending.target ~= targetId then
+    if not pending or pending.target ~= targetId or
+        (pending.stage ~= 'checking' and pending.stage ~= 'final-check') then
         LogInventoryAccessDenied(targetId, 'otherplayer-' .. tostring(robberId),
                                  'robbery-no-handshake')
         return
     end
 
-    if os.time() > pending.expires then
+    if os.time() > pending.expires or not RobberyDistanceOk(robberId, targetId) then
         ClearRobbery(robberId)
         return
     end
 
-    if not isHandsUp then
+    local TargetPlayer = QBCore.Functions.GetPlayer(targetId)
+    local targetDown = TargetPlayer and
+        (TargetPlayer.PlayerData.metadata['isdead'] or TargetPlayer.PlayerData.metadata['inlaststand'])
+
+    if pending.stage == 'final-check' then
+        if not targetDown and isHandsUp ~= true then
+            ClearRobbery(robberId)
+            TriggerClientEvent('QBCore:Notify', robberId,
+                               'Target is no longer surrendering.', 'error')
+            return
+        end
+        ClearRobbery(robberId)
+        CompleteRobbery(robberId, targetId)
+        return
+    end
+
+    if not targetDown and isHandsUp ~= true then
         ClearRobbery(robberId)
         TriggerClientEvent('QBCore:Notify', robberId,
                            'Target does not have their hands up.', 'error')
@@ -1560,8 +2130,18 @@ RegisterNetEvent('robbery:server:handsUpResult', function(robberId, isHandsUp)
     end
 
     pending.stage = 'approved'
+    pending.readyAt = GetGameTimer() + ROBBERY_PROGRESS_MS
     pending.expires = os.time() + ROBBERY_TOKEN_TIMEOUT
     TriggerClientEvent('robbery:client:startRobberyProgress', robberId, targetId)
+end)
+
+RegisterNetEvent('robbery:server:cancelRobbery', function(targetId)
+    local src = source
+    targetId = tonumber(targetId)
+    local pending = PendingRobberies[src]
+    if pending and (not targetId or pending.target == targetId) then
+        ClearRobbery(src)
+    end
 end)
 
 RegisterNetEvent('qb-inventory:server:robPlayer', function(targetId)
@@ -1569,7 +2149,6 @@ RegisterNetEvent('qb-inventory:server:robPlayer', function(targetId)
     targetId = tonumber(targetId)
     if not targetId then return end
 
-    -- The token is the gate. No token, no robbery, however this event was fired.
     local pending = PendingRobberies[src]
     if not pending or pending.stage ~= 'approved' or pending.target ~= targetId then
         LogInventoryAccessDenied(src, 'otherplayer-' .. tostring(targetId),
@@ -1582,58 +2161,95 @@ RegisterNetEvent('qb-inventory:server:robPlayer', function(targetId)
         TriggerClientEvent('QBCore:Notify', src, 'The search took too long.', 'error')
         return
     end
-
-    -- Single use: consumed here whether or not the checks below pass.
-    ClearRobbery(src)
-
-    local RobberPlayer = QBCore.Functions.GetPlayer(src)
-    local TargetPlayer = QBCore.Functions.GetPlayer(targetId)
-    if not RobberPlayer or not TargetPlayer then return end
-
-    if not RobberyDistanceOk(src, targetId) then
-        TriggerClientEvent('QBCore:Notify', src, 'Target is too far away.', 'error')
+    if pending.readyAt and GetGameTimer() < pending.readyAt then
+        LogInventoryAccessDenied(src, 'otherplayer-' .. tostring(targetId),
+                                 'robbery-progress-skipped')
         return
     end
 
-    if Player(targetId).state.inv_busy then
+    local RobberPlayer = QBCore.Functions.GetPlayer(src)
+    local TargetPlayer = QBCore.Functions.GetPlayer(targetId)
+    if not RobberPlayer or not TargetPlayer or PlayerInventoryActionBlocked(RobberPlayer) then
+        ClearRobbery(src)
+        return
+    end
+    if not RobberyDistanceOk(src, targetId) then
+        ClearRobbery(src)
+        TriggerClientEvent('QBCore:Notify', src, 'Target is too far away.', 'error')
+        return
+    end
+    if IsInventoryServerBusy(targetId) then
+        ClearRobbery(src)
         TriggerClientEvent('QBCore:Notify', src, 'This person is busy.', 'error')
         return
     end
 
-    local robberIdentifier = RobberPlayer.PlayerData.license
-    local targetIdentifier = TargetPlayer.PlayerData.license
-    local robberCitizenId = RobberPlayer.PlayerData.citizenid
-    local targetCitizenId = TargetPlayer.PlayerData.citizenid
-
-    local logFields = {
-        { name = "Robber", value = string.format("```Name: %s\nID: %s\nCitizenID: %s\nIdentifier: %s```", GetPlayerName(src), src, robberCitizenId, robberIdentifier), inline = true },
-        { name = "Victim", value = string.format("```Name: %s\nID: %s\nCitizenID: %s\nIdentifier: %s```", GetPlayerName(targetId), targetId, targetCitizenId, targetIdentifier), inline = true }
-    }
-    SendRobberyLogToDiscord("Player Robbery Initiated", 16753920, logFields) -- Orange Color
-
-    if not TargetPlayer.PlayerData.metadata['isdead'] then
-        TriggerClientEvent('qb-inventory:client:beingRobbed', targetId)
-    end
-
-    if not OpenInventoryById(src, targetId) then
-        TriggerClientEvent('QBCore:Notify', src,
-                           'This person is busy.', 'error')
+    if TargetPlayer.PlayerData.metadata['isdead'] or TargetPlayer.PlayerData.metadata['inlaststand'] then
+        ClearRobbery(src)
+        CompleteRobbery(src, targetId)
         return
     end
-    TriggerClientEvent('QBCore:Notify', targetId, 'You are being searched!', 'error', 7500)
-    TriggerClientEvent('QBCore:Notify', src, 'You started searching ' .. GetPlayerName(targetId), 'success', 7500)
+
+    -- The target was alive when the search began. Re-probe at completion so
+    -- lowering hands (or reviving during a dead-body search) cancels access.
+    pending.stage = 'final-check'
+    pending.expires = os.time() + ROBBERY_FINAL_CHECK_TIMEOUT
+    TriggerClientEvent('robbery:client:checkIfHandsUp', targetId, src)
 end)
 
 AddEventHandler('playerDropped', function()
-    local src = source
+    local src = tonumber(source) or source
+
+    -- Do not depend on QBCore:Server:PlayerUnloaded firing before/after this
+    -- native disconnect event. Server IDs are recycled; carrying a stale
+    -- mutation mutex, drop request, or debounced-save generation into the next
+    -- player assigned the same ID can brick inventory actions or run old timers
+    -- against the wrong character. Make raw playerDropped independently final.
+    saveCounters[src] = nil
+    activeDropRequests[src] = nil
+    completedDropRequests[src] = nil
+    RSInventoryBusy[src] = nil
     lastVendingOpen[src] = nil
+    lastUseItem[src] = nil
+    lastSnapshotRequest[src] = nil
+    lastDropListRequest[src] = nil
+    lastMoveRequest[src] = nil
+    usedItemReservations[src] = nil
+    RegisteredShops['vending-' .. src] = nil
     PendingRobberies[src] = nil
     -- Drop any token naming this player as the victim, and release bags they held.
     for robberId, pending in pairs(PendingRobberies) do
         if pending.target == src then PendingRobberies[robberId] = nil end
     end
+
+    local ped = GetPlayerPed(src)
+    local lastCoords = ped and ped ~= 0 and GetEntityCoords(ped) or nil
     for _, drop in pairs(Drops) do
-        if drop.carrier == src then drop.carrier = nil end
+        if drop.carrier == src then
+            if lastCoords then drop.coords = lastCoords end
+            drop.carrier = nil
+        end
+    end
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+
+    -- Player inventory mutations are debounced during normal play. A manual
+    -- `restart qb-inventory` can occur inside that debounce window, so save every
+    -- live player before tearing down server-owned drops/state. Stash data has
+    -- its own dirty flush handler in functions.lua.
+    for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+        SaveInventory(playerId)
+    end
+
+    for dropId, drop in pairs(Drops) do
+        if drop and drop.entityId then
+            TriggerClientEvent('qb-inventory:client:removeDropTarget', -1, drop.entityId)
+            local entity = NetworkGetEntityFromNetworkId(drop.entityId)
+            if entity and entity ~= 0 and DoesEntityExist(entity) then DeleteEntity(entity) end
+        end
+        Drops[dropId] = nil
     end
 end)
 
