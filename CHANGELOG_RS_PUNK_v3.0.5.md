@@ -4,7 +4,7 @@ This pass applies the sibling inventory's production-security findings to the Pu
 
 ## Security / authority
 
-- Scope remains QBCore + qb-inventory only; no Qbox/ESX/Standalone bridge and no external `rs_bridge` dependency.
+- Scope remains QBCore + qb-inventory only; no Qbox/ESX/Standalone integration or external adapter dependency.
 - Added the Cfx `/onesync` manifest constraint because vehicle/drop authority depends on server network ids, coordinates and routing buckets.
 - Vehicle sessions retain and revalidate the same network id, plate, inventory type and routing bucket on every move; capacity is resolved from server entity/QBCore data rather than client claims.
 - Player, drop, vehicle and shop interactions reject cross-routing-bucket access.
