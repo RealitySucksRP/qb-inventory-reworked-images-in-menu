@@ -19,7 +19,7 @@ RS Punk qb-inventory `3.0.5-rs-punk-production-guard` keeps the supplied Punk me
 
 ## Scope
 
-This build is intentionally focused on **QBCore + qb-inventory**. It does not add Qbox, ESX, Standalone, or an external `rs_bridge` dependency.
+This build is intentionally focused on **QBCore + qb-inventory**. It does not add Qbox, ESX, Standalone, or an external adapter dependency.
 
 ## Core features
 
